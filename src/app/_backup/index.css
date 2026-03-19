@@ -1,0 +1,33 @@
+@import './fonts.css';
+@import './tailwind.css';
+@import './theme.css';
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 8mm 20mm 8mm;
+  }
+
+  /* Force all background colours and images to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide only the buttons/controls inside the header, keep the title */
+  .print\:hidden { display: none !important; }
+
+  /* Remove screen background so paper is white */
+  body, #root, .min-h-screen { background: white !important; }
+
+  /* Remove max-width constraint so content fills the page */
+  #report-content { max-width: 100% !important; padding: 0 !important; }
+  #report-body { padding: 4mm !important; }
+
+  /* Page 2: start Inspection Summary on a new page */
+  .print-break-before { page-break-before: always; }
+
+  /* Prevent sections from splitting mid-content */
+  .bg-white, .space-y-4 > div { page-break-inside: avoid; }
+}
+
