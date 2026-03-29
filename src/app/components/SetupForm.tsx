@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
 import type { ReportData, Requirement, DiscrepancyCategory, DiscrepancyItem, ElementType, ChangeType, RequirementStatus, DrawnBox } from '../types';
 import { BoundingBoxDrawer } from './BoundingBoxDrawer';
 import { getDrafts, loadDraft, saveDraft, deleteDraft, toDataUrl, type Draft } from '../utils/drafts';
@@ -8,7 +10,7 @@ interface SetupFormProps {
   onSubmit: (data: ReportData) => void;
 }
 
-const ELEMENT_TYPES: ElementType[] = ['Text', 'Symbol', 'Image'];
+const ELEMENT_TYPES: ElementType[] = ['Text', 'Symbol', 'Barcode', 'Image'];
 const CHANGE_TYPES_REQ: ChangeType[] = ['Modified', 'Added', 'Deleted'];
 const CHANGE_TYPES_DISC: ChangeType[] = ['Modified', 'Added', 'Deleted', 'Misplaced', 'Repositioned'];
 const REQ_STATUSES: RequirementStatus[] = ['Match', 'Unmatch'];
@@ -24,11 +26,11 @@ function generateReportId(existingIds: string[] = []): string {
   const mm   = String(ist.getUTCMonth() + 1).padStart(2, '0');
   const dd   = String(ist.getUTCDate()).padStart(2, '0');
   const prefix = `${yyyy}${mm}${dd}`;
-  let counter = 1;
-  while (existingIds.includes(`${prefix}${String(counter).padStart(4, '0')}`)) {
-    counter++;
-  }
-  return `${prefix}${String(counter).padStart(4, '0')}`;
+  const maxCounter = existingIds.filter(id => id.startsWith(prefix)).reduce((max, id) => {
+    const n = parseInt(id.slice(-4), 10);
+    return isNaN(n) ? max : Math.max(max, n);
+  }, 0);
+  return `${prefix}${String(maxCounter + 1).padStart(4, '0')}`;
 }
 
 function makeCategory(): DiscrepancyCategory {
@@ -99,9 +101,15 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       currentLabelName, newLabelName, currentLabelUrl, newLabelUrl,
       currentBoxes, newBoxes, requirements, categories, isEditing]);
 
-  // Load the drafts list (for the named drafts dropdown only)
+  // Load the drafts list and restore the last selected draft
   useEffect(() => {
-    getDrafts().then(setDrafts).catch(() => {});
+    getDrafts().then(list => {
+      setDrafts(list);
+      const last = localStorage.getItem('lastDraftId');
+      if (last && list.some(d => d.id === last)) {
+        setSelectedDraftId(last);
+      }
+    }).catch(() => {});
   }, []);
 
   const refreshDrafts = () => getDrafts().then(setDrafts);
@@ -155,7 +163,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
   };
 
   const persistDraft = async (id: string, data: ReportData) => {
-    await saveDraft({ id, label: id, savedAt: new Date().toISOString(), data });
+    await saveDraft({ id, label: data.sku, savedAt: new Date().toISOString(), data });
     setSelectedDraftId(id);
     localStorage.setItem('lastDraftId', id);
     await refreshDrafts();
@@ -165,10 +173,22 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
   const handleSaveDraft = async () => {
     setSavingDraft(true);
     try {
+      // Regenerate report ID if the date portion is outdated
+      const now = new Date();
+      const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
+      const todayPrefix = `${ist.getUTCFullYear()}${String(ist.getUTCMonth() + 1).padStart(2, '0')}${String(ist.getUTCDate()).padStart(2, '0')}`;
+      const currentPrefix = reportId.slice(0, 8);
+      const id = currentPrefix !== todayPrefix
+        ? generateReportId(drafts.map(d => d.id))
+        : reportId;
+      if (id !== reportId) setReportId(id);
+
       const { data } = await buildDraftData();
-      // If a draft is loaded, overwrite it. Otherwise create a new one with a unique ID.
-      const id = selectedDraftId || generateReportId(drafts.map(d => d.id));
-      await persistDraft(id, data);
+      // If the old draft had a different name, remove it so the list stays clean
+      if (selectedDraftId && selectedDraftId !== id) {
+        await deleteDraft(selectedDraftId);
+      }
+      await persistDraft(id, { ...data, reportId: id });
       alert(`Draft "${id}" saved.`);
     } catch (err) {
       alert(`Failed to save draft: ${err instanceof Error ? err.message : 'unknown error'}`);
@@ -208,18 +228,34 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
 
   const handleImageUpload = (which: 'current' | 'new', file: File) => {
     const name = file.name.replace(/\.[^.]+$/, '');
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      if (which === 'current') {
-        setCurrentLabelUrl(dataUrl);
-        if (!currentLabelName) setCurrentLabelName(name);
-      } else {
-        setNewLabelUrl(dataUrl);
-        if (!newLabelName) setNewLabelName(name);
-      }
-    };
-    reader.readAsDataURL(file);
+    const setUrl = which === 'current' ? setCurrentLabelUrl : setNewLabelUrl;
+    const setName = which === 'current'
+      ? (n: string) => { if (!currentLabelName) setCurrentLabelName(n); }
+      : (n: string) => { if (!newLabelName)     setNewLabelName(n); };
+
+    if (file.type === 'application/pdf') {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const typedArray = new Uint8Array(reader.result as ArrayBuffer);
+        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = document.createElement('canvas');
+        canvas.width  = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+        setUrl(canvas.toDataURL('image/png'));
+        setName(name);
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setUrl(reader.result as string);
+        setName(name);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Requirements
@@ -252,11 +288,21 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     e.preventDefault();
     if (!currentLabelUrl) { alert('Please upload the Current Version Label image.'); return; }
     if (!newLabelUrl)     { alert('Please upload the New Version Label image.'); return; }
-    // Auto-save draft on generate so data is never lost
-    const id = selectedDraftId || generateReportId(drafts.map(d => d.id));
-    buildDraftData().then(({ data: draftData }) => persistDraft(id, draftData)).catch(() => {});
+    // Regenerate report ID if the date portion is outdated
+    const now = new Date();
+    const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
+    const todayPrefix = `${ist.getUTCFullYear()}${String(ist.getUTCMonth() + 1).padStart(2, '0')}${String(ist.getUTCDate()).padStart(2, '0')}`;
+    const id = reportId.slice(0, 8) !== todayPrefix
+      ? generateReportId(drafts.map(d => d.id))
+      : reportId;
+    if (id !== reportId) setReportId(id);
+    // Auto-save draft on generate so data is never lost; clean up stale draft if date changed
+    buildDraftData().then(async ({ data: draftData }) => {
+      if (selectedDraftId && selectedDraftId !== id) await deleteDraft(selectedDraftId);
+      await persistDraft(id, { ...draftData, reportId: id });
+    }).catch(() => {});
     onSubmit({
-      reportId,
+      reportId: id,
       crNumber,
       sku,
       currentRevision,
@@ -382,7 +428,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
               <label className={lbl}>Current Version Label</label>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,.pdf,application/pdf"
                 className={fileInput}
                 onChange={e => e.target.files?.[0] && handleImageUpload('current', e.target.files[0])}
               />
@@ -396,7 +442,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
               <label className={lbl}>New Version Label</label>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,.pdf,application/pdf"
                 className={fileInput}
                 onChange={e => e.target.files?.[0] && handleImageUpload('new', e.target.files[0])}
               />

@@ -7,9 +7,11 @@ export interface Draft {
   data?: ReportData; // only present when fetching a single draft
 }
 
+const API_BASE = import.meta.env.VITE_API_URL ?? '';
+
 export async function getDrafts(): Promise<Draft[]> {
   try {
-    const res = await fetch('/api/drafts');
+    const res = await fetch(`${API_BASE}/api/drafts`);
     if (!res.ok) throw new Error(`Server error ${res.status}`);
     return res.json();
   } catch (e) {
@@ -19,14 +21,14 @@ export async function getDrafts(): Promise<Draft[]> {
 }
 
 export async function loadDraft(id: string): Promise<Draft> {
-  const res = await fetch(`/api/drafts/${encodeURIComponent(id)}`);
+  const res = await fetch(`${API_BASE}/api/drafts/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error('Failed to load draft');
   return res.json();
 }
 
 export async function saveDraft(draft: Draft & { data: ReportData }): Promise<void> {
   try {
-    const res = await fetch(`/api/drafts/${encodeURIComponent(draft.id)}`, {
+    const res = await fetch(`${API_BASE}/api/drafts/${encodeURIComponent(draft.id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(draft),
@@ -39,7 +41,7 @@ export async function saveDraft(draft: Draft & { data: ReportData }): Promise<vo
 }
 
 export async function deleteDraft(id: string): Promise<void> {
-  const res = await fetch(`/api/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const res = await fetch(`${API_BASE}/api/drafts/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to delete draft');
 }
 

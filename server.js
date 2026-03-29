@@ -10,7 +10,7 @@ const DRAFTS_DIR = path.join(__dirname, 'drafts');
 if (!fs.existsSync(DRAFTS_DIR)) fs.mkdirSync(DRAFTS_DIR);
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: process.env.ALLOWED_ORIGIN ?? '*' }));
 app.use(express.json({ limit: '50mb' }));
 
 // List all drafts (metadata only, no image data)
@@ -42,7 +42,7 @@ app.get('/api/drafts/:id', (req, res) => {
 app.put('/api/drafts/:id', (req, res) => {
   try {
     const file = path.join(DRAFTS_DIR, `${req.params.id}.json`);
-    fs.writeFileSync(file, JSON.stringify(req.body));
+    fs.writeFileSync(file, JSON.stringify({ ...req.body, savedAt: new Date().toISOString() }));
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -56,4 +56,5 @@ app.delete('/api/drafts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(3001, () => console.log('Draft server running on http://localhost:3001'));
+const PORT = process.env.PORT ?? 3001;
+app.listen(PORT, () => console.log(`Draft server running on port ${PORT}`));
