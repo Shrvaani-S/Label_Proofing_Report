@@ -1,48 +1,51 @@
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DRAFTS_DIR = path.join(__dirname, 'drafts');
-
-if (!fs.existsSync(DRAFTS_DIR)) fs.mkdirSync(DRAFTS_DIR);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN ?? '*' }));
 app.use(express.json({ limit: '50mb' }));
 
 // List all drafts (metadata only, no image data)
-app.get('/api/drafts', (_req, res) => {
+app.get('/api/drafts', async (_req, res) => {
   try {
-    const files = fs.readdirSync(DRAFTS_DIR).filter(f => f.endsWith('.json'));
-    const drafts = files.map(f => {
-      const raw = JSON.parse(fs.readFileSync(path.join(DRAFTS_DIR, f), 'utf8'));
-      return { id: raw.id, label: raw.label, savedAt: raw.savedAt };
-    }).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-    res.json(drafts);
+    const { data, error } = await supabase
+      .from('drafts')
+      .select('id, label, saved_at')
+      .order('saved_at', { ascending: false });
+    if (error) throw error;
+    res.json(data.map(d => ({ id: d.id, label: d.label, savedAt: d.saved_at })));
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
 });
 
 // Get a single draft (full data including images)
-app.get('/api/drafts/:id', (req, res) => {
-  const file = path.join(DRAFTS_DIR, `${req.params.id}.json`);
-  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Not found' });
+app.get('/api/drafts/:id', async (req, res) => {
   try {
-    res.json(JSON.parse(fs.readFileSync(file, 'utf8')));
+    const { data, error } = await supabase
+      .from('drafts')
+      .select('body')
+      .eq('id', req.params.id)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Not found' });
+    res.json(data.body);
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
 });
 
 // Save / overwrite a draft
-app.put('/api/drafts/:id', (req, res) => {
+app.put('/api/drafts/:id', async (req, res) => {
   try {
-    const file = path.join(DRAFTS_DIR, `${req.params.id}.json`);
-    fs.writeFileSync(file, JSON.stringify({ ...req.body, savedAt: new Date().toISOString() }));
+    const savedAt = new Date().toISOString();
+    const body = { ...req.body, savedAt };
+    const { error } = await supabase
+      .from('drafts')
+      .upsert({ id: req.params.id, label: req.body.label ?? '', saved_at: savedAt, body });
+    if (error) throw error;
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -50,10 +53,17 @@ app.put('/api/drafts/:id', (req, res) => {
 });
 
 // Delete a draft
-app.delete('/api/drafts/:id', (req, res) => {
-  const file = path.join(DRAFTS_DIR, `${req.params.id}.json`);
-  if (fs.existsSync(file)) fs.unlinkSync(file);
-  res.json({ ok: true });
+app.delete('/api/drafts/:id', async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from('drafts')
+      .delete()
+      .eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 const PORT = process.env.PORT ?? 3001;
