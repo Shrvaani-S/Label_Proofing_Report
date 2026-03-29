@@ -10,7 +10,7 @@ dist/
 .env.production
 
 # Drafts (local data — do not commit)
-#drafts/
+drafts/
 
 # macOS
 .DS_Store
