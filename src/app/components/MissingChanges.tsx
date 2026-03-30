@@ -46,7 +46,7 @@ export function MissingChanges({ requirements }: MissingChangesProps) {
           style={{ tableLayout: 'fixed' }}
         >
           <colgroup>
-            <col style={{ width: '5%' }} />
+            <col style={{ width: '32px' }} />
             <col style={{ width: '11%' }} />
             <col style={{ width: '13%' }} />
             <col style={{ width: '26%' }} />
@@ -56,7 +56,7 @@ export function MissingChanges({ requirements }: MissingChangesProps) {
           </colgroup>
           <thead>
             <tr className="bg-gray-100 border-b border-gray-300">
-              <th className="px-2 py-2 text-center text-xs uppercase text-gray-900 font-bold border-r border-gray-200 overflow-hidden">#</th>
+              <th className="px-1 py-2 text-center text-xs uppercase text-gray-900 font-bold border-r border-gray-200">#</th>
               <th className="px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold border-r border-gray-200 overflow-hidden">Element</th>
               <th className="px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold border-r border-gray-200 overflow-hidden">Change Type</th>
               <th className="px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold border-r border-gray-200 overflow-hidden">Requirement</th>
@@ -68,7 +68,7 @@ export function MissingChanges({ requirements }: MissingChangesProps) {
           <tbody>
             {reqs.map((req) => (
               <tr key={req.id} className="border-b border-gray-200 last:border-0 hover:bg-gray-50 text-xs">
-                <td className="px-2 py-1.5 text-center text-gray-900 border-r border-gray-200" style={{ whiteSpace: 'nowrap' }}>{req.id}</td>
+                <td className="px-1 py-1.5 text-center text-gray-900 border-r border-gray-200" style={{ whiteSpace: 'nowrap' }}>{req.id}</td>
                 <td className="px-2 py-1.5 text-left border-r border-gray-200" style={{ wordBreak: 'break-word' }}>
                   <span className="text-gray-900">{req.elementType}</span>
                 </td>
