@@ -40,7 +40,7 @@ export function MissingChanges({ requirements }: MissingChangesProps) {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-gray-300 overflow-hidden">
+      <div className="bg-white border border-gray-300 overflow-hidden print:overflow-visible">
         <table
           className="w-full border-collapse text-sm"
           style={{ tableLayout: 'fixed' }}
