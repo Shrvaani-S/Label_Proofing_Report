@@ -30,6 +30,10 @@
   /* Prevent sections from splitting mid-content */
   .bg-white, .space-y-4 > div { page-break-inside: avoid; }
 
+  /* Allow requirements summary table to bleed across pages */
+  .requirements-summary > div,
+  .requirements-summary .bg-white { page-break-inside: auto !important; overflow: visible !important; }
+
   /* Bounding box labels: smaller in print */
   .bb-label { font-size: 4.7px !important; }
 

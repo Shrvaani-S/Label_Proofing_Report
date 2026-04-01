@@ -26,7 +26,7 @@ export function MissingChanges({ requirements }: MissingChangesProps) {
   const reqs = requirements ?? staticRequirements;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 requirements-summary">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-sm uppercase tracking-wide font-bold text-gray-700">
