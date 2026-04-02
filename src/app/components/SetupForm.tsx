@@ -286,8 +286,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentLabelUrl) { alert('Please upload the Current Version Label image.'); return; }
-    if (!newLabelUrl)     { alert('Please upload the New Version Label image.'); return; }
+    if (!newLabelUrl) { alert('Please upload the New Version Label image.'); return; }
     // Regenerate report ID if the date portion is outdated
     const now = new Date();
     const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
@@ -399,7 +398,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
           <div className="grid grid-cols-4 gap-4">
             <div>
               <label className={lbl}>Current Revision</label>
-              <input className={input} value={currentRevision} onChange={e => setCurrentRevision(e.target.value)} placeholder="e.g. Rev-D" required />
+              <input className={input} value={currentRevision} onChange={e => setCurrentRevision(e.target.value)} placeholder="e.g. Rev-D" />
             </div>
             <div>
               <label className={lbl}>New Revision</label>
@@ -407,7 +406,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
             </div>
             <div>
               <label className={lbl}>Current Version Label Name</label>
-              <input className={input} value={currentLabelName} onChange={e => setCurrentLabelName(e.target.value)} placeholder="e.g. LCN-187301111_1_Rev-D" required />
+              <input className={input} value={currentLabelName} onChange={e => setCurrentLabelName(e.target.value)} placeholder="e.g. LCN-187301111_1_Rev-D" />
             </div>
             <div>
               <label className={lbl}>New Version Label Name</label>

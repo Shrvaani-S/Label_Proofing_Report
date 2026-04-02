@@ -146,12 +146,12 @@ export function LabelComparison({
   newBoxes: drawnNewBoxes,
 }: LabelComparisonProps) {
   // Use dynamic data if provided, otherwise fall back to static
-  const isDynamic = !!(currentLabelUrl && newLabelUrl);
+  const isDynamic = !!newLabelUrl;
 
-  const currentSrc      = isDynamic ? currentLabelUrl! : '/LCN-187301111_1_Rev-D.png';
-  const currentSubtitle = isDynamic ? currentLabelName : 'LCN-187301111_1_Rev-D';
-  const newSrc          = isDynamic ? newLabelUrl!      : '/LCN-187301111_1_Rev-E.png';
-  const newSubtitle     = isDynamic ? newLabelName      : 'LCN-187301111_1_Rev-E';
+  const currentSrc      = currentLabelUrl ?? '/LCN-187301111_1_Rev-D.png';
+  const currentSubtitle = currentLabelName ?? 'LCN-187301111_1_Rev-D';
+  const newSrc          = isDynamic ? newLabelUrl! : '/LCN-187301111_1_Rev-E.png';
+  const newSubtitle     = isDynamic ? newLabelName : 'LCN-187301111_1_Rev-E';
 
   return (
     <div className={show === 'both' ? 'grid grid-cols-2 gap-6' : 'grid grid-cols-1'}>
@@ -160,8 +160,8 @@ export function LabelComparison({
           src={currentSrc}
           title="Current Version Label"
           subtitle={currentSubtitle}
-          boxes={isDynamic ? undefined : revDBoxes}
-          drawnBoxes={isDynamic ? drawnCurrentBoxes : undefined}
+          boxes={currentLabelUrl ? undefined : revDBoxes}
+          drawnBoxes={currentLabelUrl ? drawnCurrentBoxes : undefined}
         />
       )}
       <LabelBox
@@ -169,7 +169,7 @@ export function LabelComparison({
         title="New Version Label"
         subtitle={newSubtitle}
         boxes={isDynamic ? undefined : revEBoxes}
-        drawnBoxes={isDynamic ? drawnNewBoxes : undefined}
+        drawnBoxes={isDynamic ? drawnNewBoxes  : undefined}
       />
     </div>
   );

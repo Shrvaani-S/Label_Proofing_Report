@@ -13,13 +13,12 @@ export function MetadataRow({ data }: MetadataRowProps) {
       breakAll: false,
       value: (
         <span className="flex items-center gap-1.5">
-          <span>{data.currentRevision}</span>
-          <span className="text-[#D71500]">→</span>
+          {data.currentRevision && <><span>{data.currentRevision}</span><span className="text-[#D71500]">→</span></>}
           <span>{data.newRevision}</span>
         </span>
       )
     },
-    { label: 'Current Version Label', value: data.currentLabelName, breakAll: true },
+    { label: 'Current Version Label', value: data.currentLabelName || '-', breakAll: true },
     { label: 'New Version Label',     value: data.newLabelName,     breakAll: true },
     { label: 'Inspected By', value: 'Susanne Piche', breakAll: false },
     { label: 'Date',         value: '2025-08-22',    breakAll: false },

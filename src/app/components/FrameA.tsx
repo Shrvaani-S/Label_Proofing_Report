@@ -40,6 +40,7 @@ export function FrameA({ data }: FrameAProps) {
       <MissingChanges requirements={data?.requirements} />
       <div className="print-break-before">
         <LabelComparison
+          show={data?.currentLabelUrl ? 'both' : 'master'}
           currentLabelUrl={data?.currentLabelUrl}
           currentLabelName={data?.currentLabelName}
           newLabelUrl={data?.newLabelUrl}

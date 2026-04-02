@@ -37,13 +37,13 @@ export interface ReportData {
   reportId: string;
   crNumber: string;
   sku: string;
-  currentRevision: string;
+  currentRevision?: string;
   newRevision: string;
-  currentLabelName: string;
+  currentLabelName?: string;
   newLabelName: string;
-  currentLabelUrl: string;
+  currentLabelUrl?: string;
   newLabelUrl: string;
-  currentBoxes: DrawnBox[];
+  currentBoxes?: DrawnBox[];
   newBoxes: DrawnBox[];
   requirements: Requirement[];
   discrepancyCategories: DiscrepancyCategory[];
