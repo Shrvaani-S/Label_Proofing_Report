@@ -28,10 +28,10 @@
   .print-break-before { page-break-before: always; }
 
   /* Prevent sections from splitting mid-content */
-  .bg-white, .space-y-4 > div { page-break-inside: avoid; }
+  .bg-white:not(.print-table-flow), .space-y-4 > div:not(.print-table-flow) { page-break-inside: avoid; break-inside: avoid; }
 
   /* Allow tall tables (e.g. Requirements Summary) to flow across pages */
-  .print-table-flow { page-break-inside: auto !important; break-inside: auto !important; overflow: visible !important; }
+  .print-table-flow { page-break-inside: auto !important; break-inside: auto !important; break-before: auto !important; overflow: visible !important; }
   .print-table-flow table, .print-table-flow tbody, .print-table-flow tr { page-break-inside: auto !important; break-inside: auto !important; }
 
   /* Bounding box labels: smaller in print */
