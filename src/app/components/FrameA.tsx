@@ -38,14 +38,16 @@ export function FrameA({ data }: FrameAProps) {
   return (
     <div className="space-y-6">
       <MissingChanges requirements={data?.requirements} />
-      <LabelComparison
-        currentLabelUrl={data?.currentLabelUrl}
-        currentLabelName={data?.currentLabelName}
-        newLabelUrl={data?.newLabelUrl}
-        newLabelName={data?.newLabelName}
-        currentBoxes={data?.currentBoxes}
-        newBoxes={data?.newBoxes}
-      />
+      <div className="print-break-before">
+        <LabelComparison
+          currentLabelUrl={data?.currentLabelUrl}
+          currentLabelName={data?.currentLabelName}
+          newLabelUrl={data?.newLabelUrl}
+          newLabelName={data?.newLabelName}
+          currentBoxes={data?.currentBoxes}
+          newBoxes={data?.newBoxes}
+        />
+      </div>
       <div className="print-break-before space-y-6">
         <InspectionSummary data={summaryData} />
         <DiscrepancyDetails categories={data?.discrepancyCategories} />
