@@ -1,6 +1,31 @@
 import { useState } from 'react';
 import { Badge } from './Badge';
 
+// ─── Exported types so callers can build per-revision data ────────────────────
+
+export interface ExpectedChangesItem {
+  attribute: string;
+  changeType: string;
+  value: string;
+}
+
+export interface ExpectedChangesSection {
+  category: string;
+  items: ExpectedChangesItem[];
+}
+
+export interface ExpectedChangesTabData {
+  expected: ExpectedChangesSection[];
+  actual:   ExpectedChangesSection[];
+}
+
+export interface ExpectedChangesData {
+  text?:     ExpectedChangesTabData;
+  symbols?:  ExpectedChangesTabData;
+  barcodes?: ExpectedChangesTabData;
+  images?:   ExpectedChangesTabData;
+}
+
 export function ExpectedChanges() {
   const [activeTab, setActiveTab] = useState<'Text' | 'Symbols' | 'Barcodes' | 'Images'>('Text');
 

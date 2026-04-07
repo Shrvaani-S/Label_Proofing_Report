@@ -24,36 +24,9 @@ interface DiscrepancyDetailsProps {
   categories?: DiscrepancyCategory[];
 }
 
-const staticCategories: DiscrepancyCategory[] = [
-  {
-    title: 'TEXT',
-    items: [
-      { changeType: 'Modified', value: 'Trademark has been changed to ™' },
-      { changeType: 'Modified', value: 'Manufacturing date has been changed' },
-      { changeType: 'Modified', value: 'The Revisions was changed to the next consecutive character.' },
-      { changeType: 'Modified', value: 'The e-IFU symbol has been changed to e-IFU for US/Canada only.' },
-    ],
-  },
-  {
-    title: 'SYMBOLS',
-    items: [
-      { changeType: 'Deleted', value: 'CE mark has been removed' },
-      { changeType: 'Deleted', value: 'EC REP symbol from labels has been removed.' },
-      { changeType: 'Deleted', value: 'EC REP address from labels has been removed.' },
-      { changeType: 'Added',   value: 'MR Conditional symbol has been added' },
-    ],
-  },
-  {
-    title: 'IMAGE',
-    items: [
-      { changeType: 'Modified', value: 'Background has been added in the size of the implant (11mm, 7)' },
-    ],
-  },
-];
-
 export function DiscrepancyDetails({ categories: propCategories }: DiscrepancyDetailsProps) {
   const { theme } = useTheme();
-  const source = propCategories ?? staticCategories;
+  const source = propCategories ?? [];
 
   // Assign display colors based on predominant change type
   const colorForCategory = (items: { changeType: ChangeType }[]): string => {

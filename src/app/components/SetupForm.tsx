@@ -67,6 +67,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
   const [newLabelUrl,      setNewLabelUrl]      = useState(initialData?.newLabelUrl ?? auto?.newLabelUrl ?? '');
   const [currentBoxes,     setCurrentBoxes]     = useState<DrawnBox[]>(initialData?.currentBoxes ?? auto?.currentBoxes ?? []);
   const [newBoxes,         setNewBoxes]         = useState<DrawnBox[]>(initialData?.newBoxes ?? auto?.newBoxes ?? []);
+  const [newLabelPages,    setNewLabelPages]    = useState<{ url: string; name: string; labelType: string; stockNumber: string }[]>(initialData?.newLabelPages ?? []);
   const [requirements,     setRequirements]     = useState<Requirement[]>(
     (initialData?.requirements ?? auto?.requirements)?.length
       ? (initialData?.requirements ?? auto?.requirements)!.map(r => ({
@@ -128,6 +129,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     setNewBoxes(d.newBoxes);
     setRequirements(d.requirements);
     setCategories(d.discrepancyCategories?.length ? d.discrepancyCategories : [makeCategory()]);
+    setNewLabelPages(d.newLabelPages ?? []);
   };
 
   const handleSelectDraft = async (id: string) => {
@@ -233,19 +235,56 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       ? (n: string) => { if (!currentLabelName) setCurrentLabelName(n); }
       : (n: string) => { if (!newLabelName)     setNewLabelName(n); };
 
-    if (file.type === 'application/pdf') {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+    if (isPdf) {
       const reader = new FileReader();
       reader.onload = async () => {
-        const typedArray = new Uint8Array(reader.result as ArrayBuffer);
-        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 2 });
-        const canvas = document.createElement('canvas');
-        canvas.width  = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
-        setUrl(canvas.toDataURL('image/png'));
-        setName(name);
+        try {
+          const typedArray = new Uint8Array(reader.result as ArrayBuffer);
+          const loadingTask = pdfjsLib.getDocument({ data: typedArray });
+          const pdf = await loadingTask.promise;
+          const numPages = pdf.numPages;
+
+          console.log(`[PDF Upload] File: ${file.name} | Pages detected: ${numPages}`);
+
+          const renderPage = async (pageNum: number): Promise<string> => {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            canvas.width  = viewport.width;
+            canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error(`Canvas context unavailable for page ${pageNum}`);
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            return canvas.toDataURL('image/png');
+          };
+
+          // Render all pages sequentially to avoid memory pressure on large PDFs
+          const urls: string[] = [];
+          for (let i = 1; i <= numPages; i++) {
+            urls.push(await renderPage(i));
+          }
+
+          console.log(`[PDF Upload] Rendered ${urls.length} page(s)`);
+
+          // First page → main label URL (existing behaviour)
+          setUrl(urls[0]);
+          setName(name);
+
+          // All pages → stored for multi-revision report (only on the 'new' side)
+          if (which === 'new') {
+            setNewLabelPages(urls.map((url) => ({
+              url,
+              name,          // same LCN for all pages (user can edit per-page below)
+              labelType:   '',
+              stockNumber: '',
+            })));
+          }
+        } catch (err) {
+          console.error('[PDF Upload] Error processing PDF:', err);
+          alert(`Failed to process PDF: ${err instanceof Error ? err.message : String(err)}`);
+        }
       };
       reader.readAsArrayBuffer(file);
     } else {
@@ -314,6 +353,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       newBoxes,
       requirements: requirements.map((r, i) => ({ ...r, id: i + 1 })),
       discrepancyCategories: categories.filter(c => c.title || c.items.length > 0),
+      newLabelPages: newLabelPages.length > 0 ? newLabelPages : undefined,
     });
   };
 
@@ -445,8 +485,62 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
                 className={fileInput}
                 onChange={e => e.target.files?.[0] && handleImageUpload('new', e.target.files[0])}
               />
+              {newLabelPages.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 text-xs text-blue-700">
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="square" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span><strong>{newLabelPages.length} page{newLabelPages.length > 1 ? 's' : ''}</strong> extracted — fill in label details for each page below.</span>
+                  </div>
+
+                  {/* Per-page editable table */}
+                  <table className="w-full border-collapse text-xs border border-gray-200">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold border-r border-gray-200 w-10">Page</th>
+                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold border-r border-gray-200">LCN / Label Name</th>
+                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold border-r border-gray-200 w-36">Label Type</th>
+                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold w-36">Stock Number</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {newLabelPages.map((page, i) => (
+                        <tr key={i} className="border-b border-gray-100 last:border-0">
+                          <td className="px-3 py-1.5 text-gray-400 border-r border-gray-100 text-center">{i + 1}</td>
+                          <td className="px-2 py-1 border-r border-gray-100">
+                            <input
+                              className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-gray-500"
+                              value={page.name}
+                              onChange={e => setNewLabelPages(prev => prev.map((p, j) => j === i ? { ...p, name: e.target.value } : p))}
+                              placeholder="e.g. LCN-TUI31330_2 Rev A"
+                            />
+                          </td>
+                          <td className="px-2 py-1 border-r border-gray-100">
+                            <input
+                              className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-gray-500"
+                              value={page.labelType}
+                              onChange={e => setNewLabelPages(prev => prev.map((p, j) => j === i ? { ...p, labelType: e.target.value } : p))}
+                              placeholder="e.g. OUTER / INNER"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-gray-500"
+                              value={page.stockNumber}
+                              onChange={e => setNewLabelPages(prev => prev.map((p, j) => j === i ? { ...p, stockNumber: e.target.value } : p))}
+                              placeholder="e.g. 0900-00-133"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {newLabelUrl
-                ? <BoundingBoxDrawer imageUrl={newLabelUrl} imageLabel="New Version Label" boxes={newBoxes} onChange={setNewBoxes} />
+                ? <BoundingBoxDrawer imageUrl={newLabelUrl} imageLabel={newLabelPages.length > 1 ? 'New Version Label (Page 1)' : 'New Version Label'} boxes={newBoxes} onChange={setNewBoxes} />
                 : <div className="border border-dashed border-gray-300 h-32 flex items-center justify-center text-xs text-gray-400">No image uploaded</div>
               }
             </div>

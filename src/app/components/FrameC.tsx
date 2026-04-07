@@ -1,17 +1,16 @@
 import { InspectionSummary } from './InspectionSummary';
-import { ExpectedChanges } from './ExpectedChanges';
 import { LabelComparison } from './LabelComparison';
 import { DiscrepancyDetails } from './DiscrepancyDetails';
 import { MissingChanges } from './MissingChanges';
+import type { ReportData } from '../types';
 
-export function FrameC() {
+export function FrameC({ data }: { data?: ReportData }) {
   return (
     <div className="space-y-6">
-      <ExpectedChanges />
-      <LabelComparison />
+      <LabelComparison currentLabelUrl={data?.currentLabelUrl} currentLabelName={data?.currentLabelName} newLabelUrl={data?.newLabelUrl} newLabelName={data?.newLabelName} currentBoxes={data?.currentBoxes} newBoxes={data?.newBoxes} />
       <InspectionSummary />
-      <DiscrepancyDetails />
-      <MissingChanges />
+      <DiscrepancyDetails categories={data?.discrepancyCategories} />
+      <MissingChanges requirements={data?.requirements} />
     </div>
   );
 }

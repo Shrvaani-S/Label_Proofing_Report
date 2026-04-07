@@ -10,20 +10,8 @@ interface MissingChangesProps {
   requirements?: Requirement[];
 }
 
-const staticRequirements: Requirement[] = [
-  { id: 1, elementType: 'Text',   changeType: 'Modified', description: 'Trademark ® change to ™',                               expectedValue: '™',                             actualValue: '™',                             status: 'Match' },
-  { id: 2, elementType: 'Symbol', changeType: 'Deleted',  description: 'Remove CE mark',                                         expectedValue: 'CE mark removed',                actualValue: 'CE mark removed',                status: 'Match' },
-  { id: 3, elementType: 'Text',   changeType: 'Modified', description: 'All Revisions change to the next consecutive character',  expectedValue: 'Next consecutive character',     actualValue: 'Next consecutive character',     status: 'Match' },
-  { id: 4, elementType: 'Symbol', changeType: 'Deleted',  description: 'Remove EC REP symbol from labels where applicable',       expectedValue: 'EC REP symbol removed',          actualValue: 'EC REP symbol removed',          status: 'Match' },
-  { id: 5, elementType: 'Symbol', changeType: 'Deleted',  description: 'Remove EC REP address from labels where applicable',      expectedValue: 'EC REP address removed',         actualValue: 'EC REP address removed',         status: 'Match' },
-  { id: 6, elementType: 'Symbol', changeType: 'Added',    description: 'Add MR Conditional symbol',                              expectedValue: 'MR Conditional symbol present',  actualValue: 'MR Conditional symbol present',  status: 'Match' },
-  { id: 7, elementType: 'Text',   changeType: 'Modified', description: 'Change e-IFU symbol to e-IFU for US/Canada only',         expectedValue: 'e-IFU for US/Canada only',       actualValue: 'e-IFU for US/Canada only',       status: 'Match' },
-  { id: 8, elementType: 'Text',   changeType: 'Modified', description: 'Change the manufacturing date',                          expectedValue: 'Updated manufacturing date',     actualValue: 'Updated manufacturing date',     status: 'Match' },
-  { id: 9, elementType: 'Image',  changeType: 'Modified', description: 'Add background in the size of the implant (11mm, 7)',     expectedValue: 'Background added (11mm, 7)',     actualValue: 'Background added (11mm, 7)',      status: 'Match' },
-];
-
 export function MissingChanges({ requirements }: MissingChangesProps) {
-  const reqs = requirements ?? staticRequirements;
+  const reqs = requirements ?? [];
 
   return (
     <div className="space-y-4">

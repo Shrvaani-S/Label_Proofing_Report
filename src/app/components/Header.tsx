@@ -6,6 +6,9 @@ interface HeaderProps {
   onScenarioChange: (scenario: 'A' | 'B' | 'C') => void;
   onEdit?: () => void;
   reportId?: string;
+  onMultiRevPdf?: () => void;
+  multiRevLabelCount?: number;
+  multiRevChangedCount?: number;
 }
 
 function DownloadIcon() {
@@ -27,7 +30,7 @@ function getISTDateParts() {
   return { yyyy, mm, dd, hh, min };
 }
 
-export function Header({ activeScenario, onScenarioChange, onEdit, reportId: propReportId }: HeaderProps) {
+export function Header({ activeScenario, onScenarioChange, onEdit, reportId: propReportId, onMultiRevPdf, multiRevLabelCount = 1, multiRevChangedCount = 1 }: HeaderProps) {
   const { theme } = useTheme();
 
   const { yyyy, mm, dd } = getISTDateParts();
@@ -113,11 +116,26 @@ export function Header({ activeScenario, onScenarioChange, onEdit, reportId: pro
                 borderColor: theme.accent,
                 color: '#fff',
               }}
-              title="Download as PDF"
+              title="Download standard PDF"
             >
               <DownloadIcon />
               PDF
             </button>
+            {onMultiRevPdf && (
+              <button
+                onClick={onMultiRevPdf}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors border-2 border-white text-white hover:bg-white/10"
+                title={`Download multi-revision PDF (${multiRevLabelCount} label${multiRevLabelCount !== 1 ? 's' : ''}: ${multiRevChangedCount} changed, ${multiRevLabelCount - multiRevChangedCount} no-change)`}
+              >
+                <DownloadIcon />
+                Multi-Rev PDF
+                {multiRevLabelCount > 1 && (
+                  <span className="bg-white/20 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm">
+                    {multiRevLabelCount}
+                  </span>
+                )}
+              </button>
+            )}
             <ThemeSwitcher />
           </div>
         </div>

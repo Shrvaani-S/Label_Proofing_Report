@@ -33,6 +33,36 @@ export interface DiscrepancyCategory {
   items: DiscrepancyItem[];
 }
 
+// ─── Multi-revision types ─────────────────────────────────────────────────────
+
+export interface LabelRevision {
+  revisionName: string;
+  labelName: string;
+  labelType: string;
+  stockNumber: string;
+  labelUrl: string;
+  boxes: DrawnBox[];
+  hasChanges: boolean;
+  requirements: Requirement[];
+  discrepancyCategories: DiscrepancyCategory[];
+}
+
+export interface MultiRevisionReport {
+  reportId: string;
+  crNumber: string;
+  sku: string;
+  currentRevision: string;
+  currentLabelName: string;
+  currentLabelUrl: string;
+  currentBoxes: DrawnBox[];
+  revisedFileName: string;
+  revisions: LabelRevision[];
+}
+
+export type MultiRevisionComparisonMode = 'base-vs-revised' | 'input-form';
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface ReportData {
   reportId: string;
   crNumber: string;
@@ -47,4 +77,6 @@ export interface ReportData {
   newBoxes: DrawnBox[];
   requirements: Requirement[];
   discrepancyCategories: DiscrepancyCategory[];
+  /** All pages extracted from the uploaded revised PDF (index 0 = page 1 = newLabelUrl). */
+  newLabelPages?: { url: string; name: string; labelType: string; stockNumber: string }[];
 }
