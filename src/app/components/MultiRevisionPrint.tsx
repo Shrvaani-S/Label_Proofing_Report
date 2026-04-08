@@ -14,6 +14,8 @@ import { MissingChanges }      from './MissingChanges';
 import { LabelComparison }     from './LabelComparison';
 import { InspectionSummary }   from './InspectionSummary';
 import { DiscrepancyDetails }  from './DiscrepancyDetails';
+import { ExpectedChanges }                   from './ExpectedChanges';
+import { requirementsToExpectedChanges }     from '../utils/requirementsToExpectedChanges';
 import type {
   MultiRevisionReport,
   LabelRevision,
@@ -207,6 +209,11 @@ export function MultiRevisionPrintLayout({
           {/* Requirements Summary */}
           <div className="p-8">
             <MissingChanges requirements={rev.requirements} />
+          </div>
+
+          {/* Expected Changes vs Changes Done */}
+          <div className="print-break-before p-8">
+            <ExpectedChanges data={requirementsToExpectedChanges(rev.requirements)} />
           </div>
 
           {/* Label Comparison */}

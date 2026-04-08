@@ -26,8 +26,20 @@ export interface ExpectedChangesData {
   images?:   ExpectedChangesTabData;
 }
 
-export function ExpectedChanges() {
-  const [activeTab, setActiveTab] = useState<'Text' | 'Symbols' | 'Barcodes' | 'Images'>('Text');
+export function ExpectedChanges({ data }: { data?: ExpectedChangesData }) {
+  const [attributeOverrides, setAttributeOverrides] = useState<Record<string, string>>({});
+
+  function attrKey(tab: string, sectionIndex: number, itemIndex: number) {
+    return `${tab}-${sectionIndex}-${itemIndex}`;
+  }
+
+  function getAttr(tab: string, sectionIndex: number, itemIndex: number, fallback: string) {
+    return attributeOverrides[attrKey(tab, sectionIndex, itemIndex)] ?? fallback;
+  }
+
+  function setAttr(tab: string, sectionIndex: number, itemIndex: number, value: string) {
+    setAttributeOverrides(prev => ({ ...prev, [attrKey(tab, sectionIndex, itemIndex)]: value }));
+  }
 
   const textData = {
     expected: [
@@ -143,43 +155,30 @@ export function ExpectedChanges() {
     ],
   };
 
-  const getData = () => {
-    switch (activeTab) {
-      case 'Text': return textData;
-      case 'Symbols': return symbolsData;
-      case 'Barcodes': return barcodesData;
-      case 'Images': return imagesData;
+  // Build list of sections that actually have data, in order
+  const sections: { label: string; key: string; tabData: ExpectedChangesTabData }[] = [];
+  const fallback = data ?? { text: textData, symbols: symbolsData, barcodes: barcodesData, images: imagesData };
+  const entries: [string, string, ExpectedChangesTabData | undefined][] = [
+    ['Text',     'text',     fallback.text],
+    ['Symbols',  'symbols',  fallback.symbols],
+    ['Barcodes', 'barcodes', fallback.barcodes],
+    ['Images',   'images',   fallback.images],
+  ];
+  for (const [label, key, td] of entries) {
+    if (td && td.expected.some(s => s.items.length > 0)) {
+      sections.push({ label, key, tabData: td });
     }
-  };
+  }
 
-  const data = getData();
-
-  return (
-    <div className="bg-white border border-gray-300">
-      {/* Tabs */}
-      <div className="flex border-b border-gray-300">
-        {(['Text', 'Symbols', 'Barcodes', 'Images'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-2 text-sm transition-colors ${
-              activeTab === tab
-                ? 'bg-[#064b75] text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* Two Column Layout */}
-      <div className="p-6 space-y-6">
-        {data.expected.map((section, sectionIndex) => (
+  function renderSection(label: string, key: string, tabData: ExpectedChangesTabData) {
+    return (
+      <div key={key} className="space-y-4">
+        <div className="text-xs uppercase tracking-wide font-bold text-gray-600 border-b border-gray-200 pb-1">Expected Changes</div>
+        {tabData.expected.map((section, sectionIndex) => (
           <div key={section.category}>
-            <div className="text-xs uppercase tracking-wide text-gray-500 font-bold mb-3 px-2">
-              {section.category}
-            </div>
+            {section.category !== 'Requirements' && (
+              <div className="text-xs uppercase tracking-wide text-gray-500 font-bold mb-3 px-2">{section.category}</div>
+            )}
             <table className="w-full border-collapse border border-gray-300 text-sm">
               <thead>
                 <tr>
@@ -201,16 +200,24 @@ export function ExpectedChanges() {
               </thead>
               <tbody>
                 {section.items.map((item, index) => {
-                  const actualItem = data.actual[sectionIndex].items[index];
+                  const actualItem = tabData.actual[sectionIndex]?.items[index];
+                  const attrValue = getAttr(key, sectionIndex, index, item.attribute);
                   return (
                     <tr key={index} className="border-b border-gray-200 last:border-0">
-                      <td className="px-4 py-2 text-gray-700 bg-[#eff6ff] border-r border-gray-200">{item.attribute}</td>
+                      <td className="px-2 py-1 bg-[#eff6ff] border-r border-gray-200">
+                        <input
+                          value={attrValue}
+                          onChange={e => setAttr(key, sectionIndex, index, e.target.value)}
+                          className="w-full px-2 py-1 text-sm text-gray-700 bg-transparent rounded border border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none focus:bg-white transition-colors"
+                          title="Click to edit attribute name"
+                        />
+                      </td>
                       <td className="px-4 py-2 bg-[#eff6ff] border-r border-gray-200"><Badge type={item.changeType as any} /></td>
                       <td className="px-4 py-2 text-gray-700 font-mono text-xs bg-[#eff6ff] border-r border-r-gray-400">{item.value}</td>
-                      <td className="px-4 py-2 text-gray-700 bg-[#f0fdf4] border-r border-gray-200">{actualItem.attribute}</td>
-                      <td className="px-4 py-2 bg-[#f0fdf4] border-r border-gray-200"><Badge type={actualItem.changeType as any} /></td>
-                      <td className={`px-4 py-2 font-mono text-xs bg-[#f0fdf4] ${actualItem.value === '— NOT FOUND —' ? 'text-red-600 italic' : 'text-gray-700'}`}>
-                        {actualItem.value}
+                      <td className="px-4 py-2 text-gray-700 bg-[#f0fdf4] border-r border-gray-200">{attrValue}</td>
+                      <td className="px-4 py-2 bg-[#f0fdf4] border-r border-gray-200"><Badge type={(actualItem?.changeType ?? item.changeType) as any} /></td>
+                      <td className={`px-4 py-2 font-mono text-xs bg-[#f0fdf4] ${!actualItem || actualItem.value === '— NOT FOUND —' ? 'text-red-600 italic' : 'text-gray-700'}`}>
+                        {actualItem?.value ?? '— NOT FOUND —'}
                       </td>
                     </tr>
                   );
@@ -219,6 +226,18 @@ export function ExpectedChanges() {
             </table>
           </div>
         ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-300">
+      <div className="p-6 space-y-8">
+        {sections.length === 0 ? (
+          <div className="text-sm text-gray-400 italic text-center py-4">No requirements data.</div>
+        ) : (
+          sections.map(({ label, key, tabData }) => renderSection(label, key, tabData))
+        )}
       </div>
     </div>
   );

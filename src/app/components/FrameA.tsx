@@ -2,6 +2,8 @@ import { InspectionSummary } from './InspectionSummary';
 import { LabelComparison } from './LabelComparison';
 import { DiscrepancyDetails } from './DiscrepancyDetails';
 import { MissingChanges } from './MissingChanges';
+import { ExpectedChanges } from './ExpectedChanges';
+import { requirementsToExpectedChanges } from '../utils/requirementsToExpectedChanges';
 import type { ReportData, Requirement } from '../types';
 
 interface SummaryData {
@@ -38,6 +40,9 @@ export function FrameA({ data }: FrameAProps) {
   return (
     <div className="space-y-6">
       <MissingChanges requirements={data?.requirements} />
+      {data?.requirements?.length ? (
+        <ExpectedChanges data={requirementsToExpectedChanges(data.requirements)} />
+      ) : null}
       <div className="print-break-before">
         <LabelComparison
           show={data?.currentLabelUrl ? 'both' : 'master'}

@@ -9,39 +9,71 @@ import { SetupForm } from './components/SetupForm';
 import { MultiRevisionPrintLayout } from './components/MultiRevisionPrint';
 import type { ReportData, MultiRevisionReport, MultiRevisionComparisonMode } from './types';
 
-/** Converts flat ReportData into a MultiRevisionReport.
- *  - Page 1 of the revised PDF → hasChanges: true (carries requirements + discrepancies)
- *  - Pages 2+ (if a multi-page PDF was uploaded) → hasChanges: false
+/** Converts ReportData into a MultiRevisionReport.
+ *  Uses revisedFiles (new model) when available, falls back to legacy flat fields.
  */
 function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
-  const page0 = data.newLabelPages?.[0];
-  const mainRevision = {
-    revisionName:          data.newRevision,
-    labelName:             page0?.name ?? data.newLabelName,
-    labelType:             page0?.labelType ?? '',
-    stockNumber:           page0?.stockNumber ?? '',
-    labelUrl:              data.newLabelUrl,
-    boxes:                 data.newBoxes,
-    hasChanges:            true  as const,
-    requirements:          data.requirements,
-    discrepancyCategories: data.discrepancyCategories,
-  };
+  const commonReqs = data.commonRequirements ?? data.requirements ?? [];
+  let revisions: MultiRevisionReport['revisions'] = [];
 
-  // Pages 2+ from a multi-page PDF upload → no-change labels
-  const extraRevisions = (data.newLabelPages ?? [])
-    .slice(1)
-    .map((page) => ({
+  if (data.revisedFiles?.length) {
+    // New model: iterate all files → all pages
+    for (const file of data.revisedFiles) {
+      for (const page of file.pages) {
+        if (page.status === 'changed') {
+          revisions.push({
+            revisionName:          data.newRevision,
+            labelName:             page.name || file.fileName,
+            labelType:             page.labelType,
+            stockNumber:           page.stockNumber,
+            labelUrl:              page.url,
+            boxes:                 page.boxes,
+            hasChanges:            true,
+            requirements:          [...commonReqs, ...page.requirements].map((r, i) => ({ ...r, id: i + 1 })),
+            discrepancyCategories: page.discrepancyCategories.length
+              ? page.discrepancyCategories
+              : (data.discrepancyCategories ?? []),
+          });
+        } else {
+          revisions.push({
+            revisionName:          data.newRevision,
+            labelName:             page.name || file.fileName,
+            labelType:             page.labelType,
+            stockNumber:           page.stockNumber,
+            labelUrl:              page.url,
+            boxes:                 [],
+            hasChanges:            false,
+            requirements:          [],
+            discrepancyCategories: [],
+          });
+        }
+      }
+    }
+  } else {
+    // Legacy fallback: single label + optional extra pages
+    const page0 = data.newLabelPages?.[0];
+    revisions.push({
       revisionName:          data.newRevision,
-      labelName:             page.name,
-      labelType:             page.labelType,
-      stockNumber:           page.stockNumber,
-      labelUrl:              page.url,
-      boxes:                 [] as typeof data.currentBoxes,
-      hasChanges:            false as const,
-      requirements:          [] as typeof data.requirements,
-      discrepancyCategories: [] as typeof data.discrepancyCategories,
-    }));
+      labelName:             page0?.name ?? data.newLabelName,
+      labelType:             page0?.labelType ?? '',
+      stockNumber:           page0?.stockNumber ?? '',
+      labelUrl:              data.newLabelUrl,
+      boxes:                 data.newBoxes,
+      hasChanges:            true,
+      requirements:          data.requirements,
+      discrepancyCategories: data.discrepancyCategories,
+    });
+    for (const page of (data.newLabelPages ?? []).slice(1)) {
+      revisions.push({
+        revisionName: data.newRevision, labelName: page.name,
+        labelType: page.labelType, stockNumber: page.stockNumber,
+        labelUrl: page.url, boxes: [], hasChanges: false,
+        requirements: [], discrepancyCategories: [],
+      });
+    }
+  }
 
+  const firstFile = data.revisedFiles?.[0];
   return {
     reportId:         data.reportId,
     crNumber:         data.crNumber,
@@ -50,8 +82,8 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
     currentLabelName: data.currentLabelName,
     currentLabelUrl:  data.currentLabelUrl,
     currentBoxes:     data.currentBoxes,
-    revisedFileName:  data.newLabelName,
-    revisions:        [mainRevision, ...extraRevisions],
+    revisedFileName:  firstFile?.fileName ?? data.newLabelName,
+    revisions,
   };
 }
 

@@ -35,6 +35,22 @@ export interface DiscrepancyCategory {
 
 // ─── Multi-revision types ─────────────────────────────────────────────────────
 
+export interface RevisedLabelPage {
+  url: string;
+  name: string;
+  labelType: string;
+  stockNumber: string;
+  status: 'changed' | 'no-changes';
+  boxes: DrawnBox[];
+  requirements: Requirement[];
+  discrepancyCategories: DiscrepancyCategory[];
+}
+
+export interface RevisedFile {
+  fileName: string;
+  pages: RevisedLabelPage[];
+}
+
 export interface LabelRevision {
   revisionName: string;
   labelName: string;
@@ -79,4 +95,8 @@ export interface ReportData {
   discrepancyCategories: DiscrepancyCategory[];
   /** All pages extracted from the uploaded revised PDF (index 0 = page 1 = newLabelUrl). */
   newLabelPages?: { url: string; name: string; labelType: string; stockNumber: string }[];
+  /** Common requirements that apply to every changed label across all revised files. */
+  commonRequirements?: Requirement[];
+  /** Structured revised files with per-page status, boxes, requirements. */
+  revisedFiles?: RevisedFile[];
 }

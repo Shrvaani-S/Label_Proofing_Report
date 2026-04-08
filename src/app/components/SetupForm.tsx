@@ -1,13 +1,22 @@
 import { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
-import type { ReportData, Requirement, DiscrepancyCategory, DiscrepancyItem, ElementType, ChangeType, RequirementStatus, DrawnBox } from '../types';
+import type { ReportData, Requirement, DiscrepancyCategory, DiscrepancyItem, ElementType, ChangeType, RequirementStatus, DrawnBox, RevisedFile, RevisedLabelPage } from '../types';
 import { BoundingBoxDrawer } from './BoundingBoxDrawer';
 import { getDrafts, loadDraft, saveDraft, deleteDraft, toDataUrl, type Draft } from '../utils/drafts';
 
 interface SetupFormProps {
   initialData?: ReportData;
   onSubmit: (data: ReportData) => void;
+}
+
+// ─── Local form state for a revised page (adds 'pending' status) ──────────────
+interface RevisedPageState extends Omit<RevisedLabelPage, 'status'> {
+  status: 'pending' | 'changed' | 'no-changes';
+}
+interface RevisedFileState {
+  fileName: string;
+  pages: RevisedPageState[];
 }
 
 const ELEMENT_TYPES: ElementType[] = ['Text', 'Symbol', 'Barcode', 'Image'];
@@ -17,6 +26,14 @@ const REQ_STATUSES: RequirementStatus[] = ['Match', 'Unmatch'];
 
 function makeRequirement(id: number): Requirement {
   return { id, elementType: 'Text', changeType: 'Modified', description: '', expectedValue: '', actualValue: '', status: 'Match' };
+}
+
+function makeCategory(): DiscrepancyCategory {
+  return { title: '', items: [] };
+}
+
+function makeItem(): DiscrepancyItem {
+  return { changeType: 'Modified', value: '' };
 }
 
 function generateReportId(existingIds: string[] = []): string {
@@ -33,88 +50,336 @@ function generateReportId(existingIds: string[] = []): string {
   return `${prefix}${String(maxCounter + 1).padStart(4, '0')}`;
 }
 
-function makeCategory(): DiscrepancyCategory {
-  return { title: '', items: [] };
-}
-
-function makeItem(): DiscrepancyItem {
-  return { changeType: 'Modified', value: '' };
-}
-
 const AUTO_SAVE_KEY = 'setupFormAutoSave';
 
 function readAutoSave(): ReportData | null {
   try {
     const raw = localStorage.getItem(AUTO_SAVE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ReportData;
+    // Discard auto-saves from the old form version that don't have revisedFiles.
+    // They would incorrectly pre-populate Section 4 with a stale label image.
+    if (!parsed.revisedFiles?.length) return null;
+    return parsed;
   } catch { return null; }
 }
 
+// ─── Render all pages from a PDF file, returning data URLs ───────────────────
+async function renderPdfPages(file: File): Promise<string[]> {
+  const reader = new FileReader();
+  return new Promise((resolve, reject) => {
+    reader.onload = async () => {
+      try {
+        const typedArray = new Uint8Array(reader.result as ArrayBuffer);
+        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+        const urls: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 2 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d')!;
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          urls.push(canvas.toDataURL('image/png'));
+        }
+        resolve(urls);
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// ─── Requirements table (reusable for common + per-page) ─────────────────────
+function RequirementsTable({
+  requirements,
+  onAdd,
+  onUpdate,
+  onDelete,
+}: {
+  requirements: Requirement[];
+  onAdd: () => void;
+  onUpdate: (i: number, field: keyof Requirement, value: string) => void;
+  onDelete: (i: number) => void;
+}) {
+  const inp = "w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none";
+  const sel = "w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white";
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: '3%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '26%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '6%' }} />
+          </colgroup>
+          <thead>
+            <tr className="bg-gray-100 border-b border-gray-300">
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">#</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Element</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Change Type</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Requirement</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Expected Value</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Actual Value</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Status</th>
+              <th className="px-2 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {requirements.map((req, i) => (
+              <tr key={i} className="border-b border-gray-200">
+                <td className="px-2 py-1 text-gray-400">{i + 1}</td>
+                <td className="px-2 py-1">
+                  <select className={sel} value={req.elementType} onChange={e => onUpdate(i, 'elementType', e.target.value)}>
+                    {ELEMENT_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1">
+                  <select className={sel} value={req.changeType} onChange={e => onUpdate(i, 'changeType', e.target.value)}>
+                    {CHANGE_TYPES_REQ.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1"><input className={inp} value={req.description} onChange={e => onUpdate(i, 'description', e.target.value)} placeholder="Description" /></td>
+                <td className="px-2 py-1"><input className={inp} value={req.expectedValue} onChange={e => onUpdate(i, 'expectedValue', e.target.value)} placeholder="Expected" /></td>
+                <td className="px-2 py-1"><input className={inp} value={req.actualValue} onChange={e => onUpdate(i, 'actualValue', e.target.value)} placeholder="Actual" /></td>
+                <td className="px-2 py-1">
+                  <select className={sel} value={req.status} onChange={e => onUpdate(i, 'status', e.target.value)}>
+                    {REQ_STATUSES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1 text-center">
+                  <button type="button" onClick={() => onDelete(i)} className="text-gray-400 hover:text-red-500 font-bold text-base leading-none">×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button type="button" onClick={onAdd} className="text-xs border border-gray-300 px-3 py-1.5 text-gray-600 hover:bg-gray-50 transition-colors">
+        + Add Requirement
+      </button>
+    </div>
+  );
+}
+
+// ─── Discrepancy categories (reusable) ───────────────────────────────────────
+function DiscrepancySection({
+  categories,
+  onAddCategory,
+  onDeleteCategory,
+  onUpdateTitle,
+  onAddItem,
+  onDeleteItem,
+  onUpdateItem,
+}: {
+  categories: DiscrepancyCategory[];
+  onAddCategory: () => void;
+  onDeleteCategory: (ci: number) => void;
+  onUpdateTitle: (ci: number, title: string) => void;
+  onAddItem: (ci: number) => void;
+  onDeleteItem: (ci: number, ii: number) => void;
+  onUpdateItem: (ci: number, ii: number, field: keyof DiscrepancyItem, value: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {categories.map((cat, ci) => (
+        <div key={ci} className="border border-gray-200 p-3 space-y-2">
+          <div className="flex items-center gap-3">
+            <input
+              className="border border-gray-300 px-2 py-1 text-xs font-bold uppercase w-48 focus:outline-none bg-white"
+              value={cat.title}
+              onChange={e => onUpdateTitle(ci, e.target.value)}
+              placeholder="CATEGORY NAME"
+            />
+            <button type="button" onClick={() => onDeleteCategory(ci)} className="text-xs text-gray-400 hover:text-red-500">Remove</button>
+          </div>
+          {cat.items.length > 0 && (
+            <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+              <colgroup><col style={{ width: '20%' }} /><col style={{ width: '74%' }} /><col style={{ width: '6%' }} /></colgroup>
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="px-2 py-1.5 text-left text-[10px] uppercase text-gray-500 font-bold">Change Type</th>
+                  <th className="px-2 py-1.5 text-left text-[10px] uppercase text-gray-500 font-bold">Description</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {cat.items.map((item, ii) => (
+                  <tr key={ii} className="border-b border-gray-100">
+                    <td className="px-2 py-1">
+                      <select className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white" value={item.changeType} onChange={e => onUpdateItem(ci, ii, 'changeType', e.target.value)}>
+                        {CHANGE_TYPES_DISC.map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1">
+                      <input className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none" value={item.value} onChange={e => onUpdateItem(ci, ii, 'value', e.target.value)} placeholder="Description of change" />
+                    </td>
+                    <td className="px-2 py-1 text-center">
+                      <button type="button" onClick={() => onDeleteItem(ci, ii)} className="text-gray-400 hover:text-red-500 font-bold text-base leading-none">×</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <button type="button" onClick={() => onAddItem(ci)} className="text-xs border border-gray-300 px-2 py-1 text-gray-600 hover:bg-gray-50">+ Add Item</button>
+        </div>
+      ))}
+      <button type="button" onClick={onAddCategory} className="text-xs border border-gray-300 px-3 py-1.5 text-gray-600 hover:bg-gray-50 transition-colors">
+        + Add Category
+      </button>
+    </div>
+  );
+}
+
+// ─── Main form ────────────────────────────────────────────────────────────────
+
 export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
   const isEditing = !!initialData;
-
-  // Use auto-saved data as fallback when not editing an existing report
   const auto = !isEditing ? readAutoSave() : null;
 
-  const [reportId,         setReportId]         = useState(initialData?.reportId ?? auto?.reportId ?? generateReportId());
-  const [crNumber,         setCrNumber]         = useState(initialData?.crNumber ?? auto?.crNumber ?? '');
-  const [sku,              setSku]              = useState(initialData?.sku ?? auto?.sku ?? '');
-  const [currentRevision,  setCurrentRevision]  = useState(initialData?.currentRevision ?? auto?.currentRevision ?? '');
-  const [newRevision,      setNewRevision]      = useState(initialData?.newRevision ?? auto?.newRevision ?? '');
+  // ── Metadata ──
+  const [reportId,        setReportId]        = useState(initialData?.reportId ?? auto?.reportId ?? generateReportId());
+  const [crNumber,        setCrNumber]        = useState(initialData?.crNumber ?? auto?.crNumber ?? '');
+  const [sku,             setSku]             = useState(initialData?.sku ?? auto?.sku ?? '');
+  const [currentRevision, setCurrentRevision] = useState(initialData?.currentRevision ?? auto?.currentRevision ?? '');
+  const [newRevision,     setNewRevision]     = useState(initialData?.newRevision ?? auto?.newRevision ?? '');
+
+  // ── Base label ──
   const [currentLabelName, setCurrentLabelName] = useState(initialData?.currentLabelName ?? auto?.currentLabelName ?? '');
-  const [newLabelName,     setNewLabelName]     = useState(initialData?.newLabelName ?? auto?.newLabelName ?? '');
-  const [currentLabelUrl,  setCurrentLabelUrl]  = useState(initialData?.currentLabelUrl ?? auto?.currentLabelUrl ?? '');
-  const [newLabelUrl,      setNewLabelUrl]      = useState(initialData?.newLabelUrl ?? auto?.newLabelUrl ?? '');
+  const [currentLabelUrl,  setCurrentLabelUrl]  = useState(initialData?.currentLabelUrl  ?? auto?.currentLabelUrl  ?? '');
   const [currentBoxes,     setCurrentBoxes]     = useState<DrawnBox[]>(initialData?.currentBoxes ?? auto?.currentBoxes ?? []);
-  const [newBoxes,         setNewBoxes]         = useState<DrawnBox[]>(initialData?.newBoxes ?? auto?.newBoxes ?? []);
-  const [newLabelPages,    setNewLabelPages]    = useState<{ url: string; name: string; labelType: string; stockNumber: string }[]>(initialData?.newLabelPages ?? []);
-  const [requirements,     setRequirements]     = useState<Requirement[]>(
-    (initialData?.requirements ?? auto?.requirements)?.length
-      ? (initialData?.requirements ?? auto?.requirements)!.map(r => ({
+
+  // ── Common requirements ──
+  const [commonRequirements, setCommonRequirements] = useState<Requirement[]>(
+    (initialData?.commonRequirements ?? initialData?.requirements ?? auto?.requirements)?.length
+      ? (initialData?.commonRequirements ?? initialData?.requirements ?? auto?.requirements)!.map(r => ({
           ...r,
           status: (r.status === 'Matched' ? 'Match' : r.status === 'Unmatched' ? 'Unmatch' : r.status) as RequirementStatus,
         }))
       : [makeRequirement(1)]
   );
-  const [categories,       setCategories]       = useState<DiscrepancyCategory[]>(
+
+  // ── Common discrepancy categories ──
+  const [commonCategories, setCommonCategories] = useState<DiscrepancyCategory[]>(
     (initialData?.discrepancyCategories ?? auto?.discrepancyCategories)?.length
       ? (initialData?.discrepancyCategories ?? auto?.discrepancyCategories)!
       : [makeCategory()]
   );
 
-  // Drafts
+  // ── Revised files ──
+  // Only convert legacy flat fields when explicitly editing (initialData), not from auto-save.
+  // Auto-save only restores revisedFiles if it was saved by the new form (has revisedFiles key).
+  const [revisedFiles, setRevisedFiles] = useState<RevisedFileState[]>(() => {
+    // New format: revisedFiles array exists
+    if (initialData?.revisedFiles?.length) {
+      return initialData.revisedFiles.map(f => ({ ...f, pages: f.pages.map(p => ({ ...p })) }));
+    }
+    if (auto?.revisedFiles?.length) {
+      return auto.revisedFiles.map(f => ({ ...f, pages: f.pages.map(p => ({ ...p })) }));
+    }
+
+    // Legacy conversion only for explicit editing (not auto-save)
+    if (initialData) {
+      if (initialData.newLabelPages?.length) {
+        return [{
+          fileName: initialData.newLabelName ?? 'Revised Label',
+          pages: initialData.newLabelPages.map((p, i) => ({
+            url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber,
+            status: i === 0 ? 'changed' : 'no-changes',
+            boxes: i === 0 ? (initialData.newBoxes ?? []) : [],
+            requirements: [],
+            discrepancyCategories: [],
+          } as RevisedPageState)),
+        }];
+      }
+      if (initialData.newLabelUrl) {
+        return [{
+          fileName: initialData.newLabelName ?? 'Revised Label',
+          pages: [{
+            url: initialData.newLabelUrl,
+            name: initialData.newLabelName ?? '',
+            labelType: '', stockNumber: '',
+            status: 'changed',
+            boxes: initialData.newBoxes ?? [],
+            requirements: [],
+            discrepancyCategories: [],
+          }],
+        }];
+      }
+    }
+
+    return [];
+  });
+
+  // ── Drafts ──
   const [drafts,          setDrafts]          = useState<Draft[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState('');
-  const [savingDraft,     setSavingDraft]      = useState(false);
+  const [savingDraft,     setSavingDraft]     = useState(false);
 
-  // Auto-save all form fields to localStorage on every change
+  // ── Auto-save ──
   useEffect(() => {
     if (isEditing) return;
     try {
       localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify({
         reportId, crNumber, sku, currentRevision, newRevision,
-        currentLabelName, newLabelName, currentLabelUrl, newLabelUrl,
-        currentBoxes, newBoxes, requirements,
-        discrepancyCategories: categories,
+        currentLabelName, currentLabelUrl, currentBoxes,
+        commonRequirements,
+        discrepancyCategories: commonCategories,
+        revisedFiles,
+        // legacy flat fields derived from first changed page
+        ...deriveLegacyFields(),
       }));
-    } catch { /* storage quota exceeded */ }
+    } catch { /* quota */ }
   }, [reportId, crNumber, sku, currentRevision, newRevision,
-      currentLabelName, newLabelName, currentLabelUrl, newLabelUrl,
-      currentBoxes, newBoxes, requirements, categories, isEditing]);
+      currentLabelName, currentLabelUrl, currentBoxes,
+      commonRequirements, commonCategories, revisedFiles, isEditing]);
 
-  // Load the drafts list and restore the last selected draft
   useEffect(() => {
     getDrafts().then(list => {
       setDrafts(list);
       const last = localStorage.getItem('lastDraftId');
-      if (last && list.some(d => d.id === last)) {
-        setSelectedDraftId(last);
-      }
+      if (last && list.some(d => d.id === last)) setSelectedDraftId(last);
     }).catch(() => {});
   }, []);
 
   const refreshDrafts = () => getDrafts().then(setDrafts);
 
+  // ── Derive legacy flat fields from first changed page ──────────────────────
+  function deriveLegacyFields() {
+    for (const file of revisedFiles) {
+      const changed = file.pages.find(p => p.status === 'changed');
+      if (changed) {
+        return {
+          newLabelName: changed.name || file.fileName,
+          newRevision,
+          newLabelUrl: changed.url,
+          newBoxes: changed.boxes,
+          requirements: [...commonRequirements, ...changed.requirements].map((r, i) => ({ ...r, id: i + 1 })),
+          discrepancyCategories: changed.discrepancyCategories.length
+            ? changed.discrepancyCategories
+            : commonCategories.filter(c => c.title || c.items.length),
+          newLabelPages: revisedFiles.flatMap(f =>
+            f.pages.map(p => ({ url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber }))
+          ),
+        };
+      }
+    }
+    return {
+      newLabelName: '', newRevision, newLabelUrl: '', newBoxes: [],
+      requirements: commonRequirements.map((r, i) => ({ ...r, id: i + 1 })),
+      discrepancyCategories: commonCategories.filter(c => c.title || c.items.length),
+      newLabelPages: undefined,
+    };
+  }
+
+  // ── Draft handlers ──────────────────────────────────────────────────────────
   const loadDraftData = (d: ReportData) => {
     setReportId(d.reportId);
     setCrNumber(d.crNumber);
@@ -122,14 +387,35 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     setCurrentRevision(d.currentRevision);
     setNewRevision(d.newRevision);
     setCurrentLabelName(d.currentLabelName);
-    setNewLabelName(d.newLabelName);
     setCurrentLabelUrl(d.currentLabelUrl);
-    setNewLabelUrl(d.newLabelUrl);
     setCurrentBoxes(d.currentBoxes);
-    setNewBoxes(d.newBoxes);
-    setRequirements(d.requirements);
-    setCategories(d.discrepancyCategories?.length ? d.discrepancyCategories : [makeCategory()]);
-    setNewLabelPages(d.newLabelPages ?? []);
+    setCommonRequirements(
+      (d.commonRequirements ?? d.requirements)?.length
+        ? (d.commonRequirements ?? d.requirements).map(r => ({ ...r, status: (r.status === 'Matched' ? 'Match' : r.status === 'Unmatched' ? 'Unmatch' : r.status) as RequirementStatus }))
+        : [makeRequirement(1)]
+    );
+    setCommonCategories(d.discrepancyCategories?.length ? d.discrepancyCategories : [makeCategory()]);
+    if (d.revisedFiles?.length) {
+      setRevisedFiles(d.revisedFiles.map(f => ({ ...f, pages: f.pages.map(p => ({ ...p })) })));
+    } else if (d.newLabelPages?.length) {
+      setRevisedFiles([{
+        fileName: d.newLabelName ?? 'Revised Label',
+        pages: d.newLabelPages.map((p, i) => ({
+          url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber,
+          status: i === 0 ? 'changed' : 'no-changes',
+          boxes: i === 0 ? d.newBoxes : [],
+          requirements: [],
+          discrepancyCategories: [],
+        } as RevisedPageState)),
+      }]);
+    } else if (d.newLabelUrl) {
+      setRevisedFiles([{
+        fileName: d.newLabelName ?? 'Revised Label',
+        pages: [{ url: d.newLabelUrl, name: d.newLabelName ?? '', labelType: '', stockNumber: '', status: 'changed', boxes: d.newBoxes ?? [], requirements: [], discrepancyCategories: [] }],
+      }]);
+    } else {
+      setRevisedFiles([]);
+    }
   };
 
   const handleSelectDraft = async (id: string) => {
@@ -137,30 +423,35 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     if (!id) return;
     try {
       const draft = await loadDraft(id);
-      if (draft.data) {
-        loadDraftData(draft.data);
-        localStorage.setItem('lastDraftId', id);
-      }
-    } catch (e) {
-      alert(`Failed to load draft: ${e instanceof Error ? e.message : 'unknown error'}`);
-    }
+      if (draft.data) { loadDraftData(draft.data); localStorage.setItem('lastDraftId', id); }
+    } catch (e) { alert(`Failed to load draft: ${e instanceof Error ? e.message : 'unknown error'}`); }
   };
 
-  const buildDraftData = async (): Promise<{ data: ReportData }> => {
-    const [resolvedCurrentUrl, resolvedNewUrl] = await Promise.all([
-      toDataUrl(currentLabelUrl),
-      toDataUrl(newLabelUrl),
-    ]);
+  const buildReportData = async (): Promise<ReportData> => {
+    const resolvedCurrentUrl = await toDataUrl(currentLabelUrl);
+    const legacy = deriveLegacyFields();
     return {
-      data: {
-        reportId, crNumber, sku, currentRevision, newRevision,
-        currentLabelName, newLabelName,
-        currentLabelUrl: resolvedCurrentUrl,
-        newLabelUrl: resolvedNewUrl,
-        currentBoxes, newBoxes,
-        requirements: requirements.map((r, i) => ({ ...r, id: i + 1 })),
-        discrepancyCategories: categories.filter(c => c.title || c.items.length > 0),
-      },
+      reportId, crNumber, sku, currentRevision, newRevision: legacy.newRevision,
+      currentLabelName, currentLabelUrl: resolvedCurrentUrl,
+      newLabelName: legacy.newLabelName,
+      newLabelUrl: legacy.newLabelUrl,
+      currentBoxes, newBoxes: legacy.newBoxes,
+      requirements: legacy.requirements,
+      discrepancyCategories: legacy.discrepancyCategories,
+      newLabelPages: legacy.newLabelPages,
+      commonRequirements: commonRequirements.map((r, i) => ({ ...r, id: i + 1 })),
+      revisedFiles: revisedFiles.map(f => ({
+        fileName: f.fileName,
+        pages: f.pages
+          .filter(p => p.status !== 'pending')
+          .map(p => ({
+            url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber,
+            status: p.status as 'changed' | 'no-changes',
+            boxes: p.boxes,
+            requirements: p.requirements.map((r, i) => ({ ...r, id: i + 1 })),
+            discrepancyCategories: p.discrepancyCategories.filter(c => c.title || c.items.length),
+          })),
+      })),
     };
   };
 
@@ -171,52 +462,33 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     await refreshDrafts();
   };
 
-  // Save Draft: update the loaded draft, or create a new one if starting fresh
   const handleSaveDraft = async () => {
     setSavingDraft(true);
     try {
-      // Regenerate report ID if the date portion is outdated
       const now = new Date();
       const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
       const todayPrefix = `${ist.getUTCFullYear()}${String(ist.getUTCMonth() + 1).padStart(2, '0')}${String(ist.getUTCDate()).padStart(2, '0')}`;
-      const currentPrefix = reportId.slice(0, 8);
-      const id = currentPrefix !== todayPrefix
-        ? generateReportId(drafts.map(d => d.id))
-        : reportId;
+      const id = reportId.slice(0, 8) !== todayPrefix ? generateReportId(drafts.map(d => d.id)) : reportId;
       if (id !== reportId) setReportId(id);
-
-      const { data } = await buildDraftData();
-      // If the old draft had a different name, remove it so the list stays clean
-      if (selectedDraftId && selectedDraftId !== id) {
-        await deleteDraft(selectedDraftId);
-      }
+      const data = await buildReportData();
+      if (selectedDraftId && selectedDraftId !== id) await deleteDraft(selectedDraftId);
       await persistDraft(id, { ...data, reportId: id });
       alert(`Draft "${id}" saved.`);
     } catch (err) {
       alert(`Failed to save draft: ${err instanceof Error ? err.message : 'unknown error'}`);
-    } finally {
-      setSavingDraft(false);
-    }
+    } finally { setSavingDraft(false); }
   };
 
-  // Create New: reset the form to a blank state for a new report
   const handleCreateNew = () => {
     localStorage.removeItem(AUTO_SAVE_KEY);
     localStorage.removeItem('lastDraftId');
     setSelectedDraftId('');
     setReportId(generateReportId(drafts.map(d => d.id)));
-    setCrNumber('');
-    setSku('');
-    setCurrentRevision('');
-    setNewRevision('');
-    setCurrentLabelName('');
-    setNewLabelName('');
-    setCurrentLabelUrl('');
-    setNewLabelUrl('');
-    setCurrentBoxes([]);
-    setNewBoxes([]);
-    setRequirements([makeRequirement(1)]);
-    setCategories([makeCategory()]);
+    setCrNumber(''); setSku(''); setCurrentRevision(''); setNewRevision('');
+    setCurrentLabelName(''); setCurrentLabelUrl(''); setCurrentBoxes([]);
+    setCommonRequirements([makeRequirement(1)]);
+    setCommonCategories([makeCategory()]);
+    setRevisedFiles([]);
   };
 
   const handleDeleteDraft = async () => {
@@ -228,144 +500,213 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     refreshDrafts();
   };
 
-  const handleImageUpload = (which: 'current' | 'new', file: File) => {
+  // ── Base label upload ───────────────────────────────────────────────────────
+  const handleBaseUpload = (file: File) => {
     const name = file.name.replace(/\.[^.]+$/, '');
-    const setUrl = which === 'current' ? setCurrentLabelUrl : setNewLabelUrl;
-    const setName = which === 'current'
-      ? (n: string) => { if (!currentLabelName) setCurrentLabelName(n); }
-      : (n: string) => { if (!newLabelName)     setNewLabelName(n); };
-
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-
     if (isPdf) {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const typedArray = new Uint8Array(reader.result as ArrayBuffer);
-          const loadingTask = pdfjsLib.getDocument({ data: typedArray });
-          const pdf = await loadingTask.promise;
-          const numPages = pdf.numPages;
-
-          console.log(`[PDF Upload] File: ${file.name} | Pages detected: ${numPages}`);
-
-          const renderPage = async (pageNum: number): Promise<string> => {
-            const page = await pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 2 });
-            const canvas = document.createElement('canvas');
-            canvas.width  = viewport.width;
-            canvas.height = viewport.height;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) throw new Error(`Canvas context unavailable for page ${pageNum}`);
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            return canvas.toDataURL('image/png');
-          };
-
-          // Render all pages sequentially to avoid memory pressure on large PDFs
-          const urls: string[] = [];
-          for (let i = 1; i <= numPages; i++) {
-            urls.push(await renderPage(i));
-          }
-
-          console.log(`[PDF Upload] Rendered ${urls.length} page(s)`);
-
-          // First page → main label URL (existing behaviour)
-          setUrl(urls[0]);
-          setName(name);
-
-          // All pages → stored for multi-revision report (only on the 'new' side)
-          if (which === 'new') {
-            setNewLabelPages(urls.map((url) => ({
-              url,
-              name,          // same LCN for all pages (user can edit per-page below)
-              labelType:   '',
-              stockNumber: '',
-            })));
-          }
-        } catch (err) {
-          console.error('[PDF Upload] Error processing PDF:', err);
-          alert(`Failed to process PDF: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      };
-      reader.readAsArrayBuffer(file);
+      renderPdfPages(file).then(urls => {
+        setCurrentLabelUrl(urls[0]);
+        setCurrentLabelName(name);
+      }).catch(err => alert(`Failed to process PDF: ${err instanceof Error ? err.message : String(err)}`));
     } else {
       const reader = new FileReader();
-      reader.onload = () => {
-        setUrl(reader.result as string);
-        setName(name);
-      };
+      reader.onload = () => { setCurrentLabelUrl(reader.result as string); setCurrentLabelName(name); };
       reader.readAsDataURL(file);
     }
   };
 
-  // Requirements
-  const addRequirement = () =>
-    setRequirements(prev => [...prev, makeRequirement(prev.length ? prev[prev.length - 1].id + 1 : 1)]);
+  // ── Build a RevisedFileState from a File ───────────────────────────────────
+  const buildRevisedFileState = async (file: File): Promise<RevisedFileState> => {
+    const fileName = file.name;
+    const baseName = fileName.replace(/\.[^.]+$/, '');
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const urls = isPdf
+      ? await renderPdfPages(file)
+      : await new Promise<string[]>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve([reader.result as string]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+    return {
+      fileName,
+      pages: urls.map((url, i) => ({
+        url,
+        name: urls.length > 1 ? `${baseName} (Page ${i + 1})` : baseName,
+        labelType: '', stockNumber: '',
+        status: 'pending' as const,
+        boxes: [], requirements: [], discrepancyCategories: [],
+      })),
+    };
+  };
 
-  const updateReq = (i: number, field: keyof Requirement, value: string) =>
-    setRequirements(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
+  // Upload handler for the primary revised file (Section 2 right side)
+  const handlePrimaryRevisedUpload = async (file: File) => {
+    try {
+      const newFile = await buildRevisedFileState(file);
+      setRevisedFiles(prev => [newFile, ...prev.slice(1)]);
+    } catch (err) {
+      alert(`Failed to process file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
-  const deleteReq = (i: number) =>
-    setRequirements(prev => prev.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, id: idx + 1 })));
+  // ── Revised file upload (additional files, Section 4) ──────────────────────
+  const handleAddRevisedFile = async (file: File) => {
+    try {
+      const newFile = await buildRevisedFileState(file);
+      setRevisedFiles(prev => [...prev, newFile]);
+    } catch (err) {
+      alert(`Failed to process file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
-  // Categories / discrepancy items
-  const addCategory = () => setCategories(prev => [...prev, makeCategory()]);
-  const deleteCategory = (ci: number) => setCategories(prev => prev.filter((_, i) => i !== ci));
-  const updateCatTitle = (ci: number, title: string) =>
-    setCategories(prev => prev.map((c, i) => i === ci ? { ...c, title } : c));
+  // ── Revised file/page updaters ──────────────────────────────────────────────
+  const removeRevisedFile = (fi: number) =>
+    setRevisedFiles(prev => prev.filter((_, i) => i !== fi));
 
-  const addItem = (ci: number) =>
-    setCategories(prev => prev.map((c, i) => i === ci ? { ...c, items: [...c.items, makeItem()] } : c));
-  const deleteItem = (ci: number, ii: number) =>
-    setCategories(prev => prev.map((c, i) => i === ci ? { ...c, items: c.items.filter((_, j) => j !== ii) } : c));
-  const updateItem = (ci: number, ii: number, field: keyof DiscrepancyItem, value: string) =>
-    setCategories(prev => prev.map((c, i) => i === ci
+  const updatePage = <K extends keyof RevisedPageState>(fi: number, pi: number, field: K, value: RevisedPageState[K]) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : { ...p, [field]: value }),
+    }));
+
+  const addPageRequirement = (fi: number, pi: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        requirements: [...p.requirements, makeRequirement(p.requirements.length ? p.requirements[p.requirements.length - 1].id + 1 : 1)],
+      }),
+    }));
+
+  const updatePageReq = (fi: number, pi: number, ri: number, field: keyof Requirement, value: string) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        requirements: p.requirements.map((r, k) => k !== ri ? r : { ...r, [field]: value }),
+      }),
+    }));
+
+  const deletePageReq = (fi: number, pi: number, ri: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        requirements: p.requirements.filter((_, k) => k !== ri).map((r, k) => ({ ...r, id: k + 1 })),
+      }),
+    }));
+
+  const addPageCategory = (fi: number, pi: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : { ...p, discrepancyCategories: [...p.discrepancyCategories, makeCategory()] }),
+    }));
+
+  const deletePageCategory = (fi: number, pi: number, ci: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : { ...p, discrepancyCategories: p.discrepancyCategories.filter((_, k) => k !== ci) }),
+    }));
+
+  const updatePageCatTitle = (fi: number, pi: number, ci: number, title: string) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        discrepancyCategories: p.discrepancyCategories.map((c, k) => k !== ci ? c : { ...c, title }),
+      }),
+    }));
+
+  const addPageItem = (fi: number, pi: number, ci: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        discrepancyCategories: p.discrepancyCategories.map((c, k) => k !== ci ? c : { ...c, items: [...c.items, makeItem()] }),
+      }),
+    }));
+
+  const deletePageItem = (fi: number, pi: number, ci: number, ii: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        discrepancyCategories: p.discrepancyCategories.map((c, k) => k !== ci ? c : { ...c, items: c.items.filter((_, l) => l !== ii) }),
+      }),
+    }));
+
+  const updatePageItem = (fi: number, pi: number, ci: number, ii: number, field: keyof DiscrepancyItem, value: string) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        discrepancyCategories: p.discrepancyCategories.map((c, k) => k !== ci ? c : {
+          ...c,
+          items: c.items.map((item, l) => l !== ii ? item : { ...item, [field]: value }),
+        }),
+      }),
+    }));
+
+  // ── Common requirements handlers ────────────────────────────────────────────
+  const addCommonReq = () =>
+    setCommonRequirements(prev => [...prev, makeRequirement(prev.length ? prev[prev.length - 1].id + 1 : 1)]);
+  const updateCommonReq = (i: number, field: keyof Requirement, value: string) =>
+    setCommonRequirements(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
+  const deleteCommonReq = (i: number) =>
+    setCommonRequirements(prev => prev.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, id: idx + 1 })));
+
+  // ── Common categories handlers ──────────────────────────────────────────────
+  const addCommonCat    = () => setCommonCategories(prev => [...prev, makeCategory()]);
+  const deleteCommonCat = (ci: number) => setCommonCategories(prev => prev.filter((_, i) => i !== ci));
+  const updateCommonCatTitle = (ci: number, title: string) =>
+    setCommonCategories(prev => prev.map((c, i) => i === ci ? { ...c, title } : c));
+  const addCommonItem = (ci: number) =>
+    setCommonCategories(prev => prev.map((c, i) => i === ci ? { ...c, items: [...c.items, makeItem()] } : c));
+  const deleteCommonItem = (ci: number, ii: number) =>
+    setCommonCategories(prev => prev.map((c, i) => i === ci ? { ...c, items: c.items.filter((_, j) => j !== ii) } : c));
+  const updateCommonItem = (ci: number, ii: number, field: keyof DiscrepancyItem, value: string) =>
+    setCommonCategories(prev => prev.map((c, i) => i === ci
       ? { ...c, items: c.items.map((item, j) => j === ii ? { ...item, [field]: value } : item) }
       : c
     ));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // ── Submit ──────────────────────────────────────────────────────────────────
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLabelUrl) { alert('Please upload the New Version Label image.'); return; }
-    // Regenerate report ID if the date portion is outdated
+    const hasAnyRevisedPage = revisedFiles.some(f => f.pages.some(p => p.status !== 'pending'));
+    if (!hasAnyRevisedPage) { alert('Please upload at least one revised version file and mark each page.'); return; }
+    const pendingPages = revisedFiles.flatMap((f, fi) =>
+      f.pages.map((p, pi) => p.status === 'pending' ? `File ${fi + 1} Page ${pi + 1}` : null).filter(Boolean)
+    );
+    if (pendingPages.length) {
+      if (!confirm(`${pendingPages.length} page(s) are still marked as Pending and will be excluded. Continue?`)) return;
+    }
     const now = new Date();
     const ist = new Date(now.getTime() + (5 * 60 + 30) * 60 * 1000);
     const todayPrefix = `${ist.getUTCFullYear()}${String(ist.getUTCMonth() + 1).padStart(2, '0')}${String(ist.getUTCDate()).padStart(2, '0')}`;
-    const id = reportId.slice(0, 8) !== todayPrefix
-      ? generateReportId(drafts.map(d => d.id))
-      : reportId;
+    const id = reportId.slice(0, 8) !== todayPrefix ? generateReportId(drafts.map(d => d.id)) : reportId;
     if (id !== reportId) setReportId(id);
-    // Auto-save draft on generate so data is never lost; clean up stale draft if date changed
-    buildDraftData().then(async ({ data: draftData }) => {
+    const data = await buildReportData();
+    const finalData = { ...data, reportId: id };
+    buildReportData().then(async d => {
       if (selectedDraftId && selectedDraftId !== id) await deleteDraft(selectedDraftId);
-      await persistDraft(id, { ...draftData, reportId: id });
+      await persistDraft(id, { ...d, reportId: id });
     }).catch(() => {});
-    onSubmit({
-      reportId: id,
-      crNumber,
-      sku,
-      currentRevision,
-      newRevision,
-      currentLabelName,
-      newLabelName,
-      currentLabelUrl,
-      newLabelUrl,
-      currentBoxes,
-      newBoxes,
-      requirements: requirements.map((r, i) => ({ ...r, id: i + 1 })),
-      discrepancyCategories: categories.filter(c => c.title || c.items.length > 0),
-      newLabelPages: newLabelPages.length > 0 ? newLabelPages : undefined,
-    });
+    onSubmit(finalData);
   };
 
-  const input = "w-full border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:border-gray-500 bg-white";
-  const lbl   = "block text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-1";
-  const sec   = "bg-white border border-gray-300 p-6 space-y-4";
-  const secH  = "text-xs uppercase tracking-wide font-bold text-gray-700 pb-3 border-b border-gray-200";
+  // ── CSS shortcuts ───────────────────────────────────────────────────────────
+  const input    = "w-full border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:border-gray-500 bg-white";
+  const lbl      = "block text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-1";
+  const sec      = "bg-white border border-gray-300 p-6 space-y-4";
+  const secH     = "text-xs uppercase tracking-wide font-bold text-gray-700 pb-3 border-b border-gray-200";
   const fileInput = "block w-full text-xs text-gray-600 cursor-pointer file:mr-3 file:py-1.5 file:px-3 file:border file:border-gray-300 file:text-xs file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100 file:cursor-pointer";
 
   return (
     <div className="min-h-screen bg-[#f3f4f6]">
-      {/* Header bar */}
+      {/* Header */}
       <div className="w-full px-8 py-4" style={{ backgroundColor: '#D71500' }}>
         <h1 className="text-white text-lg font-semibold">Label Proofing Report — Setup</h1>
         <p className="text-white/70 text-xs mt-0.5">
@@ -388,30 +729,18 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
             </option>
           ))}
         </select>
-        <button
-          type="button"
-          disabled={!selectedDraftId}
-          onClick={handleDeleteDraft}
-          className="px-3 py-1.5 text-xs border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
+        <button type="button" disabled={!selectedDraftId} onClick={handleDeleteDraft}
+          className="px-3 py-1.5 text-xs border border-red-200 text-red-500 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           Delete
         </button>
         <div className="flex-1" />
-        <button
-          type="button"
-          onClick={handleCreateNew}
-          disabled={savingDraft}
-          className="px-4 py-1.5 text-xs font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60"
-        >
+        <button type="button" onClick={handleCreateNew} disabled={savingDraft}
+          className="px-4 py-1.5 text-xs font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-60">
           + Create New
         </button>
-        <button
-          type="button"
-          onClick={handleSaveDraft}
-          disabled={savingDraft}
+        <button type="button" onClick={handleSaveDraft} disabled={savingDraft}
           className="px-4 py-1.5 text-xs font-semibold text-white transition-colors disabled:opacity-60"
-          style={{ backgroundColor: '#D71500' }}
-        >
+          style={{ backgroundColor: '#D71500' }}>
           {savingDraft ? 'Saving...' : 'Save Draft'}
         </button>
       </div>
@@ -422,273 +751,171 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         <div className={sec}>
           <div className={secH}>1. Report Metadata</div>
           <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={lbl}>Report ID (LPR)</label>
-              <input className={input} value={reportId} onChange={e => setReportId(e.target.value)} placeholder="e.g. 202603180001" />
-            </div>
-            <div>
-              <label className={lbl}>CR Number (Optional)</label>
-              <input className={input} value={crNumber} onChange={e => setCrNumber(e.target.value)} placeholder="-" />
-            </div>
-            <div>
-              <label className={lbl}>SKU</label>
-              <input className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="e.g. 187301111" required />
-            </div>
+            <div><label className={lbl}>Report ID (LPR)</label>
+              <input className={input} value={reportId} onChange={e => setReportId(e.target.value)} placeholder="e.g. 202603180001" /></div>
+            <div><label className={lbl}>CR Number (Optional)</label>
+              <input className={input} value={crNumber} onChange={e => setCrNumber(e.target.value)} placeholder="-" /></div>
+            <div><label className={lbl}>SKU</label>
+              <input className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="e.g. 187301111" required /></div>
           </div>
-          <div className="grid grid-cols-4 gap-4">
-            <div>
-              <label className={lbl}>Current Revision</label>
-              <input className={input} value={currentRevision} onChange={e => setCurrentRevision(e.target.value)} placeholder="e.g. Rev-D" />
-            </div>
-            <div>
-              <label className={lbl}>New Revision</label>
-              <input className={input} value={newRevision} onChange={e => setNewRevision(e.target.value)} placeholder="e.g. Rev-E" required />
-            </div>
-            <div>
-              <label className={lbl}>Current Version Label Name</label>
-              <input className={input} value={currentLabelName} onChange={e => setCurrentLabelName(e.target.value)} placeholder="e.g. LCN-187301111_1_Rev-D" />
-            </div>
-            <div>
-              <label className={lbl}>New Version Label Name</label>
-              <input className={input} value={newLabelName} onChange={e => setNewLabelName(e.target.value)} placeholder="e.g. LCN-187301111_1_Rev-E" required />
-            </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div><label className={lbl}>Current Revision</label>
+              <input className={input} value={currentRevision} onChange={e => setCurrentRevision(e.target.value)} placeholder="e.g. Rev-D" /></div>
+            <div><label className={lbl}>New Revision</label>
+              <input className={input} value={newRevision} onChange={e => setNewRevision(e.target.value)} placeholder="e.g. Rev-E" required /></div>
+            <div><label className={lbl}>Current Version Label Name</label>
+              <input className={input} value={currentLabelName} onChange={e => setCurrentLabelName(e.target.value)} placeholder="e.g. LCN-187301111_1_Rev-D" /></div>
           </div>
         </div>
 
-        {/* 2. Images + bounding boxes */}
+        {/* 2. Label Images & Bounding Boxes */}
         <div className={sec}>
           <div className={secH}>2. Label Images &amp; Bounding Boxes</div>
           <p className="text-xs text-gray-500">
-            Upload both label images. After uploading, click and drag on each image to draw bounding boxes marking the changes.
+            Upload both labels. For each page in the revised file, mark whether it has changes or not.
+            Changed pages expand to let you draw bounding boxes.
           </p>
           <div className="grid grid-cols-2 gap-8">
-            {/* Current label */}
+
+            {/* Left: Base / Current label */}
             <div className="space-y-3">
-              <label className={lbl}>Current Version Label</label>
-              <input
-                type="file"
-                accept="image/*,.pdf,application/pdf"
-                className={fileInput}
-                onChange={e => e.target.files?.[0] && handleImageUpload('current', e.target.files[0])}
-              />
+              <label className={lbl}>Current Version Label (Base)</label>
+              <input type="file" accept="image/*,.pdf,application/pdf" className={fileInput}
+                onChange={e => e.target.files?.[0] && handleBaseUpload(e.target.files[0])} />
               {currentLabelUrl
                 ? <BoundingBoxDrawer imageUrl={currentLabelUrl} imageLabel="Current Version Label" boxes={currentBoxes} onChange={setCurrentBoxes} />
                 : <div className="border border-dashed border-gray-300 h-32 flex items-center justify-center text-xs text-gray-400">No image uploaded</div>
               }
             </div>
-            {/* New label */}
-            <div className="space-y-3">
-              <label className={lbl}>New Version Label</label>
-              <input
-                type="file"
-                accept="image/*,.pdf,application/pdf"
-                className={fileInput}
-                onChange={e => e.target.files?.[0] && handleImageUpload('new', e.target.files[0])}
-              />
-              {newLabelPages.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 text-xs text-blue-700">
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                      <path strokeLinecap="square" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <span><strong>{newLabelPages.length} page{newLabelPages.length > 1 ? 's' : ''}</strong> extracted — fill in label details for each page below.</span>
-                  </div>
 
-                  {/* Per-page editable table */}
-                  <table className="w-full border-collapse text-xs border border-gray-200">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold border-r border-gray-200 w-10">Page</th>
-                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold border-r border-gray-200">LCN / Label Name</th>
-                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold border-r border-gray-200 w-36">Label Type</th>
-                        <th className="px-3 py-2 text-left text-[10px] uppercase text-gray-500 font-bold w-36">Stock Number</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {newLabelPages.map((page, i) => (
-                        <tr key={i} className="border-b border-gray-100 last:border-0">
-                          <td className="px-3 py-1.5 text-gray-400 border-r border-gray-100 text-center">{i + 1}</td>
-                          <td className="px-2 py-1 border-r border-gray-100">
-                            <input
-                              className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-gray-500"
-                              value={page.name}
-                              onChange={e => setNewLabelPages(prev => prev.map((p, j) => j === i ? { ...p, name: e.target.value } : p))}
-                              placeholder="e.g. LCN-TUI31330_2 Rev A"
-                            />
-                          </td>
-                          <td className="px-2 py-1 border-r border-gray-100">
-                            <input
-                              className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-gray-500"
-                              value={page.labelType}
-                              onChange={e => setNewLabelPages(prev => prev.map((p, j) => j === i ? { ...p, labelType: e.target.value } : p))}
-                              placeholder="e.g. OUTER / INNER"
-                            />
-                          </td>
-                          <td className="px-2 py-1">
-                            <input
-                              className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:border-gray-500"
-                              value={page.stockNumber}
-                              onChange={e => setNewLabelPages(prev => prev.map((p, j) => j === i ? { ...p, stockNumber: e.target.value } : p))}
-                              placeholder="e.g. 0900-00-133"
-                            />
-                          </td>
-                        </tr>
+            {/* Right: New Version Labels (Revised) — supports multiple files with multiple pages */}
+            <div className="space-y-3">
+              <label className={lbl}>New Version Label (Revised)</label>
+
+              {revisedFiles.length > 0 ? (
+                <div className="space-y-4">
+                  {revisedFiles.map((rFile, fi) => (
+                    <div key={fi} className="border border-gray-200">
+                      {/* File header */}
+                      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-200">
+                        <span className="text-[11px] font-bold text-gray-600 truncate">{rFile.fileName}</span>
+                        <button type="button" onClick={() => removeRevisedFile(fi)}
+                          className="text-xs text-red-400 hover:text-red-600 shrink-0 ml-2">Remove</button>
+                      </div>
+                      {/* Pages */}
+                      {rFile.pages.map((page, pi) => (
+                        <div key={pi} className="border-b last:border-b-0 border-gray-200">
+                          {/* Page row: thumbnail + meta + status */}
+                          <div className="flex gap-3 p-3 items-start">
+                            <div className="shrink-0">
+                              <div className="text-[10px] text-gray-400 font-bold mb-1">Pg {pi + 1}</div>
+                              <img src={page.url} alt={`Page ${pi + 1}`} className="w-20 h-auto border border-gray-100 block" />
+                            </div>
+                            <div className="flex-1 space-y-2 min-w-0">
+                              <input className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none"
+                                value={page.name} placeholder="LCN / Label Name"
+                                onChange={e => updatePage(fi, pi, 'name', e.target.value)} />
+                              <div className="grid grid-cols-2 gap-2">
+                                <input className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none"
+                                  value={page.labelType} placeholder="Label Type"
+                                  onChange={e => updatePage(fi, pi, 'labelType', e.target.value)} />
+                                <input className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none"
+                                  value={page.stockNumber} placeholder="Stock Number"
+                                  onChange={e => updatePage(fi, pi, 'stockNumber', e.target.value)} />
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => updatePage(fi, pi, 'status', 'changed')}
+                                  className={`px-2 py-0.5 text-xs font-semibold border transition-colors ${page.status === 'changed' ? 'bg-[#064b75] text-white border-[#064b75]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                                  Has Changes
+                                </button>
+                                <button type="button" onClick={() => updatePage(fi, pi, 'status', 'no-changes')}
+                                  className={`px-2 py-0.5 text-xs font-semibold border transition-colors ${page.status === 'no-changes' ? 'bg-green-600 text-white border-green-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                                  No Changes ✓
+                                </button>
+                                {page.status === 'pending' && <span className="text-[10px] text-amber-500 font-semibold">— pending —</span>}
+                              </div>
+                            </div>
+                          </div>
+                          {/* Expanded: bbox + label-specific reqs + discrepancy */}
+                          {page.status === 'changed' && (
+                            <div className="border-t border-gray-200 p-3 space-y-4">
+                              <BoundingBoxDrawer imageUrl={page.url} imageLabel={page.name || `Page ${pi + 1}`}
+                                boxes={page.boxes} onChange={boxes => updatePage(fi, pi, 'boxes', boxes)} />
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-2">
+                                  Label-Specific Requirements
+                                  <span className="ml-1 text-gray-400 normal-case font-normal">(adds to common requirements)</span>
+                                </div>
+                                <RequirementsTable requirements={page.requirements}
+                                  onAdd={() => addPageRequirement(fi, pi)}
+                                  onUpdate={(ri, field, value) => updatePageReq(fi, pi, ri, field, value)}
+                                  onDelete={ri => deletePageReq(fi, pi, ri)} />
+                              </div>
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-2">Changes Made</div>
+                                <DiscrepancySection categories={page.discrepancyCategories}
+                                  onAddCategory={() => addPageCategory(fi, pi)}
+                                  onDeleteCategory={ci => deletePageCategory(fi, pi, ci)}
+                                  onUpdateTitle={(ci, title) => updatePageCatTitle(fi, pi, ci, title)}
+                                  onAddItem={ci => addPageItem(fi, pi, ci)}
+                                  onDeleteItem={(ci, ii) => deletePageItem(fi, pi, ci, ii)}
+                                  onUpdateItem={(ci, ii, field, value) => updatePageItem(fi, pi, ci, ii, field, value)} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       ))}
-                    </tbody>
-                  </table>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <div className="border border-dashed border-gray-300 h-32 flex items-center justify-center text-xs text-gray-400">No file uploaded</div>
               )}
 
-              {newLabelUrl
-                ? <BoundingBoxDrawer imageUrl={newLabelUrl} imageLabel={newLabelPages.length > 1 ? 'New Version Label (Page 1)' : 'New Version Label'} boxes={newBoxes} onChange={setNewBoxes} />
-                : <div className="border border-dashed border-gray-300 h-32 flex items-center justify-center text-xs text-gray-400">No image uploaded</div>
-              }
+              {/* Upload a file (first or additional) */}
+              <label className="block border border-dashed border-gray-400 px-4 py-3 text-center text-xs text-gray-500 hover:bg-gray-50 cursor-pointer transition-colors">
+                <input type="file" accept="image/*,.pdf,application/pdf" className="hidden"
+                  onChange={e => { if (e.target.files?.[0]) { handleAddRevisedFile(e.target.files[0]); e.target.value = ''; } }} />
+                + Upload Revised File (supports multi-page PDFs)
+              </label>
             </div>
           </div>
         </div>
 
-        {/* 3. Requirements Summary */}
+        {/* 3. Common Requirements */}
         <div className={sec}>
-          <div className={secH}>3. Requirements Summary</div>
-          <p className="text-xs text-gray-500">Each row appears as a line in the Requirements Summary table in the report.</p>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: '3%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '26%' }} />
-                <col style={{ width: '17%' }} />
-                <col style={{ width: '17%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '6%' }} />
-              </colgroup>
-              <thead>
-                <tr className="bg-gray-100 border-b border-gray-300">
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">#</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Element</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Change Type</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Requirement</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Expected Value</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Actual Value</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Status</th>
-                  <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {requirements.map((req, i) => (
-                  <tr key={i} className="border-b border-gray-200">
-                    <td className="px-2 py-1 text-gray-400">{i + 1}</td>
-                    <td className="px-2 py-1">
-                      <select className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white" value={req.elementType} onChange={e => updateReq(i, 'elementType', e.target.value)}>
-                        {ELEMENT_TYPES.map(t => <option key={t}>{t}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-2 py-1">
-                      <select className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white" value={req.changeType} onChange={e => updateReq(i, 'changeType', e.target.value)}>
-                        {CHANGE_TYPES_REQ.map(t => <option key={t}>{t}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-2 py-1">
-                      <input className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none" value={req.description}    onChange={e => updateReq(i, 'description',    e.target.value)} placeholder="Description" />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none" value={req.expectedValue}  onChange={e => updateReq(i, 'expectedValue',  e.target.value)} placeholder="Expected" />
-                    </td>
-                    <td className="px-2 py-1">
-                      <input className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none" value={req.actualValue}    onChange={e => updateReq(i, 'actualValue',    e.target.value)} placeholder="Actual" />
-                    </td>
-                    <td className="px-2 py-1">
-                      <select className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white" value={req.status} onChange={e => updateReq(i, 'status', e.target.value)}>
-                        {REQ_STATUSES.map(s => <option key={s}>{s}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-2 py-1 text-center">
-                      <button type="button" onClick={() => deleteReq(i)} className="text-gray-400 hover:text-red-500 font-bold text-base leading-none">×</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <button type="button" onClick={addRequirement} className="text-xs border border-gray-300 px-3 py-1.5 text-gray-600 hover:bg-gray-50 transition-colors">
-            + Add Requirement
-          </button>
+          <div className={secH}>3. Common Requirements</div>
+          <p className="text-xs text-gray-500">Requirements that apply to <strong>all</strong> revised labels. Enter once — they appear in every changed label's report section.</p>
+          <RequirementsTable
+            requirements={commonRequirements}
+            onAdd={addCommonReq}
+            onUpdate={updateCommonReq}
+            onDelete={deleteCommonReq}
+          />
         </div>
 
-        {/* 4. Changes Made */}
+        {/* 4. Common Changes Made */}
         <div className={sec}>
-          <div className={secH}>4. Changes Made</div>
-          <p className="text-xs text-gray-500">Group changes by category (e.g. TEXT, SYMBOLS, IMAGE). Each category becomes a collapsible section in the report.</p>
-          <div className="space-y-4">
-            {categories.map((cat, ci) => (
-              <div key={ci} className="border border-gray-200 p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <input
-                    className="border border-gray-300 px-2 py-1 text-xs font-bold uppercase w-48 focus:outline-none bg-white"
-                    value={cat.title}
-                    onChange={e => updateCatTitle(ci, e.target.value)}
-                    placeholder="CATEGORY NAME (e.g. TEXT)"
-                  />
-                  <button type="button" onClick={() => deleteCategory(ci)} className="text-xs text-gray-400 hover:text-red-500">
-                    Remove category
-                  </button>
-                </div>
-
-                {cat.items.length > 0 && (
-                  <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
-                    <colgroup>
-                      <col style={{ width: '20%' }} />
-                      <col style={{ width: '74%' }} />
-                      <col style={{ width: '6%' }} />
-                    </colgroup>
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="px-2 py-1.5 text-left text-[10px] uppercase text-gray-500 font-bold">Change Type</th>
-                        <th className="px-2 py-1.5 text-left text-[10px] uppercase text-gray-500 font-bold">Description</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cat.items.map((item, ii) => (
-                        <tr key={ii} className="border-b border-gray-100">
-                          <td className="px-2 py-1">
-                            <select className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white" value={item.changeType} onChange={e => updateItem(ci, ii, 'changeType', e.target.value)}>
-                              {CHANGE_TYPES_DISC.map(t => <option key={t}>{t}</option>)}
-                            </select>
-                          </td>
-                          <td className="px-2 py-1">
-                            <input className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none" value={item.value} onChange={e => updateItem(ci, ii, 'value', e.target.value)} placeholder="Description of change" />
-                          </td>
-                          <td className="px-2 py-1 text-center">
-                            <button type="button" onClick={() => deleteItem(ci, ii)} className="text-gray-400 hover:text-red-500 font-bold text-base leading-none">×</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-                <button type="button" onClick={() => addItem(ci)} className="text-xs border border-gray-300 px-2 py-1 text-gray-600 hover:bg-gray-50">
-                  + Add Item
-                </button>
-              </div>
-            ))}
-            <button type="button" onClick={addCategory} className="text-xs border border-gray-300 px-3 py-1.5 text-gray-600 hover:bg-gray-50 transition-colors">
-              + Add Category
-            </button>
-          </div>
+          <div className={secH}>4. Common Changes Made</div>
+          <p className="text-xs text-gray-500">Changes that apply across all revised labels. Group by category (e.g. TEXT, SYMBOLS). Label-specific changes can be added per page above.</p>
+          <DiscrepancySection
+            categories={commonCategories}
+            onAddCategory={addCommonCat}
+            onDeleteCategory={deleteCommonCat}
+            onUpdateTitle={updateCommonCatTitle}
+            onAddItem={addCommonItem}
+            onDeleteItem={deleteCommonItem}
+            onUpdateItem={updateCommonItem}
+          />
         </div>
 
         {/* Submit */}
         <div className="flex justify-end pb-8">
-          <button
-            type="submit"
-            className="px-8 py-2.5 text-sm font-semibold text-white"
-            style={{ backgroundColor: '#D71500' }}
-          >
+          <button type="submit" className="px-8 py-2.5 text-sm font-semibold text-white" style={{ backgroundColor: '#D71500' }}>
             {isEditing ? 'Update Report →' : 'Generate Report →'}
           </button>
         </div>
+
       </form>
     </div>
   );
