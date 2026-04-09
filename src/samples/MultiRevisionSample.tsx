@@ -14,15 +14,15 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { ThemeProvider } from '../app/contexts/ThemeContext';
-import { MissingChanges } from '../app/components/MissingChanges';
-import { LabelComparison } from '../app/components/LabelComparison';
-import { InspectionSummary } from '../app/components/InspectionSummary';
-import { DiscrepancyDetails } from '../app/components/DiscrepancyDetails';
-import { ExpectedChanges } from '../app/components/ExpectedChanges';
-import { Badge } from '../app/components/Badge';
-import type { Requirement, DiscrepancyCategory, DrawnBox } from '../app/types';
-import type { ExpectedChangesData } from '../app/components/ExpectedChanges';
+import { ThemeProvider } from '@/common/ThemeContext';
+import { MissingChanges } from '@/components/MissingChanges';
+import { LabelComparison } from '@/components/LabelComparison';
+import { InspectionSummary } from '@/components/InspectionSummary';
+import { DiscrepancyDetails } from '@/components/DiscrepancyDetails';
+import { ExpectedChanges } from '@/components/ExpectedChanges';
+import { Badge } from '@/components/Badge';
+import type { Requirement, DiscrepancyCategory, DrawnBox } from '@/common/types';
+import type { ExpectedChangesData } from '@/components/ExpectedChanges';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

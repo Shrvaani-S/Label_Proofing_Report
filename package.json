@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "concurrently 'node server.js' 'vite'",
+    "dev": "concurrently 'node server/app.js' 'vite'",
     "dev:ui": "vite",
-    "server": "node server.js"
+    "server": "node server/app.js"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
