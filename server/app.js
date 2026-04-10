@@ -6,7 +6,8 @@ import draftRoutes from './routes/draftRoutes.js';
 const app = express();
 
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN ?? '*' }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
 app.use('/api/drafts', draftRoutes);
 

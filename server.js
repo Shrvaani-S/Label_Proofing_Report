@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 
 const app = express();
 app.use(cors({ origin: process.env.ALLOWED_ORIGIN ?? '*' }));
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ limit: '200mb', extended: true }));
 
 const USE_SUPABASE = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY);
 
