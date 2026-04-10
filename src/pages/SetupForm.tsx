@@ -477,7 +477,12 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
   };
 
   const persistDraft = async (id: string, data: ReportData) => {
-    await saveDraft({ id, label: data.sku, savedAt: new Date().toISOString(), data });
+    // For Mode B & C the global sku is empty — fall back to first per-page SKU, then report ID
+    const draftLabel =
+      data.sku ||
+      data.revisedFiles?.flatMap(f => f.pages).find(p => p.sku)?.sku ||
+      data.reportId;
+    await saveDraft({ id, label: draftLabel, savedAt: new Date().toISOString(), data });
     setSelectedDraftId(id);
     localStorage.setItem('lastDraftId', id);
     await refreshDrafts();

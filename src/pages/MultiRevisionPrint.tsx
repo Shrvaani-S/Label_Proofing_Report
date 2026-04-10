@@ -298,8 +298,10 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
 
   return (
     <div>
-      {/* Cover page — pass original file-ordered revisions so grouping is correct */}
-      <PrintCoverPage report={report} selectedRevisions={report.revisions} />
+      {/* Cover page — only shown when more than one label is being downloaded */}
+      {report.revisions.length > 1 && (
+        <PrintCoverPage report={report} selectedRevisions={report.revisions} />
+      )}
 
       {/* Changed labels — one full report section per label */}
       {changedRevs.map((rev) => (
@@ -311,24 +313,14 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
 
       {/* No-change labels */}
       {report.mode === 'C' ? (
-        // Mode C — one label per page, base + revised side by side
+        // Mode C — one label per page, header + base + revised side by side
         noChangeRevs.map((rev) => {
           const basePage  = report.currentLabelPages[rev.pageIndex];
           const baseUrl   = basePage?.url  ?? report.currentLabelUrl;
           const baseName  = basePage?.name ?? report.currentLabelName;
           return (
             <div key={`${rev.fileIndex}-${rev.pageIndex}`} style={{ pageBreakBefore: 'always' }}>
-              <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
-                <div className="flex items-center gap-3">
-                  {rev.sku && <span className="text-xs font-bold text-gray-900">{rev.sku}</span>}
-                  <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">No Changes Required</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  {rev.labelType && <span className="text-[10px] font-bold uppercase text-gray-500">{rev.labelType}</span>}
-                  {rev.stockNumber && <span className="text-[10px] font-mono text-gray-400">{rev.stockNumber}</span>}
-                  <span className="text-[10px] text-gray-400">{rev.revisionName}</span>
-                </div>
-              </div>
+              <PrintPageHeader report={report} revision={rev} />
               <div className="p-8 grid grid-cols-2 gap-6">
                 <div className="border border-gray-200 bg-white">
                   <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200">
@@ -353,17 +345,23 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
           );
         })
       ) : (
-        // Mode A & B — 2 labels per page, revised image only
+        // Mode A & B — 2 labels per page (revised only); single label gets full header
         noChangePairs.map((pair, pi) => (
           <div key={pi} style={{ pageBreakBefore: 'always' }}>
-            <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
-              <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">
-                Labels — No Changes Required
-              </span>
-              <span className="text-[10px] text-gray-400">
-                {pair.map(r => r.revisionName).join(' · ')}
-              </span>
-            </div>
+            {pair.length === 1 ? (
+              // Single no-change label — show full page header
+              <PrintPageHeader report={report} revision={pair[0]} />
+            ) : (
+              // Two labels on one page — show simple section banner
+              <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
+                <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">
+                  Labels — No Changes Required
+                </span>
+                <span className="text-[10px] text-gray-400">
+                  {pair.map(r => r.revisionName).join(' · ')}
+                </span>
+              </div>
+            )}
             <div className={`p-8 grid gap-6 ${pair.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {pair.map((rev) => (
                 <div key={`${rev.fileIndex}-${rev.pageIndex}`} className="border border-gray-200 bg-white">
