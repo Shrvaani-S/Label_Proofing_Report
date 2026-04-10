@@ -17,6 +17,13 @@ import type { MultiRevisionReport, LabelRevision } from '@/common/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const ZERO_SUMMARY = {
+  deleted:   { text: 0, symbol: 0, barcode: 0, image: 0 },
+  added:     { text: 0, symbol: 0, barcode: 0, image: 0 },
+  modified:  { text: 0, symbol: 0, barcode: 0, image: 0 },
+  misplaced: { text: 0, symbol: 0, barcode: 0, image: 0 },
+};
+
 function matchCount(rev: LabelRevision) {
   if (!rev.hasChanges) return { matched: 0, total: 0 };
   const matched = rev.requirements.filter(r => r.status === 'Match').length;
@@ -43,18 +50,20 @@ function computeSummaryData(requirements: LabelRevision['requirements']) {
 // ─── Per-revision page header ─────────────────────────────────────────────────
 
 function PrintPageHeader({
-  report, revision,
+  report, revision, noChanges = false,
 }: {
   report: MultiRevisionReport;
   revision: LabelRevision;
+  noChanges?: boolean;
 }) {
-  const basePage = report.currentLabelPages[revision.pageIndex];
+  const basePage  = report.currentLabelPages[revision.pageIndex];
+  const reportId  = revision.reportId ?? report.reportId;
   return (
     <div>
       <div className="px-8 py-5 flex items-start justify-between" style={{ backgroundColor: '#D71500' }}>
         <div className="space-y-1">
           <h1 className="text-white text-2xl leading-tight">Label Proofing Report</h1>
-          <div className="text-white text-xs">Report ID: {report.reportId}</div>
+          <div className="text-white text-xs">Report ID: {reportId}</div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <img src="/novintix-logo.png" alt="Novintix" className="h-7 w-auto" />
@@ -312,47 +321,13 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
       ))}
 
       {/* No-change labels */}
-      {report.mode === 'C' ? (
-        // Mode C — one label per page, header + base + revised side by side
-        noChangeRevs.map((rev) => {
-          const basePage  = report.currentLabelPages[rev.pageIndex];
-          const baseUrl   = basePage?.url  ?? report.currentLabelUrl;
-          const baseName  = basePage?.name ?? report.currentLabelName;
-          return (
-            <div key={`${rev.fileIndex}-${rev.pageIndex}`} style={{ pageBreakBefore: 'always' }}>
-              <PrintPageHeader report={report} revision={rev} />
-              <div className="p-8 grid grid-cols-2 gap-6">
-                <div className="border border-gray-200 bg-white">
-                  <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
-                    <div className="text-[10px] text-gray-400 truncate mt-0.5">{baseName}</div>
-                  </div>
-                  <div className="p-4">
-                    <img src={baseUrl} alt={baseName} className="w-full h-auto block" />
-                  </div>
-                </div>
-                <div className="border border-gray-200 bg-white">
-                  <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200">
-                    <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">New Version</div>
-                    <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
-                  </div>
-                  <div className="p-4">
-                    <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })
-      ) : (
-        // Mode A & B — 2 labels per page (revised only); single label gets full header
+      {report.mode === 'A' ? (
+        // Mode A — purely visual, 2 labels per page, no requirements
         noChangePairs.map((pair, pi) => (
           <div key={pi} style={{ pageBreakBefore: 'always' }}>
             {pair.length === 1 ? (
-              // Single no-change label — show full page header
-              <PrintPageHeader report={report} revision={pair[0]} />
+              <PrintPageHeader report={report} revision={pair[0]} noChanges />
             ) : (
-              // Two labels on one page — show simple section banner
               <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
                 <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">
                   Labels — No Changes Required
@@ -367,20 +342,9 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
                 <div key={`${rev.fileIndex}-${rev.pageIndex}`} className="border border-gray-200 bg-white">
                   <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      {report.mode !== 'A' && rev.sku && (
-                        <div className="text-xs font-bold text-gray-900 mb-1">{rev.sku}</div>
-                      )}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {rev.labelType && (
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-gray-700">{rev.labelType}</span>
-                        )}
-                        {rev.stockNumber && (
-                          <span className="text-[10px] font-mono text-gray-500">{rev.stockNumber}</span>
-                        )}
-                      </div>
-                      <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
+                      <div className="text-[10px] text-gray-400 truncate">{rev.labelName}</div>
                     </div>
-                    <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 bg-green-50 text-green-700">
+                    <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
                         <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
                       </svg>
@@ -395,6 +359,94 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
             </div>
           </div>
         ))
+      ) : (
+        // Mode B & C — one label per page with full header + requirements sections
+        noChangeRevs.map((rev) => {
+          const basePage = report.currentLabelPages[rev.pageIndex];
+          const baseUrl  = basePage?.url  ?? report.currentLabelUrl;
+          const baseName = basePage?.name ?? report.currentLabelName;
+          return (
+            <div key={`${rev.fileIndex}-${rev.pageIndex}`} style={{ pageBreakBefore: 'always' }}>
+              <PrintPageHeader report={report} revision={rev} noChanges />
+
+              {/* Label image(s) */}
+              {report.mode === 'C' ? (
+                <div className="p-8 grid grid-cols-2 gap-6">
+                  <div className="border border-gray-200 bg-white">
+                    <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
+                        <div className="text-[10px] text-gray-400 truncate mt-0.5">{baseName}</div>
+                      </div>
+                      <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+                        </svg>
+                        No Changes
+                      </span>
+                    </div>
+                    <div className="p-4">
+                      <img src={baseUrl} alt={baseName} className="w-full h-auto block" />
+                    </div>
+                  </div>
+                  <div className="border border-gray-200 bg-white">
+                    <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">New Version</div>
+                        <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
+                      </div>
+                      <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+                        </svg>
+                        No Changes
+                      </span>
+                    </div>
+                    <div className="p-4">
+                      <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Mode B — revised label only
+                <div className="p-8">
+                  <div className="border border-gray-200 bg-white inline-block max-w-md w-full">
+                    <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        {rev.sku && <div className="text-xs font-bold text-gray-900 mb-1">{rev.sku}</div>}
+                        <div className="text-[10px] text-gray-400 truncate">{rev.labelName}</div>
+                      </div>
+                      <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                          <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+                        </svg>
+                        No Changes
+                      </span>
+                    </div>
+                    <div className="p-4">
+                      <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Requirements sections */}
+              {rev.requirements.length > 0 && (
+                <>
+                  <div className="print-break-before p-8">
+                    <MissingChanges requirements={rev.requirements} />
+                  </div>
+                  <div className="print-break-before p-8">
+                    <ExpectedChanges data={requirementsToExpectedChanges(rev.requirements)} />
+                  </div>
+                  <div className="print-break-before p-8">
+                    <InspectionSummary data={ZERO_SUMMARY} />
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })
       )}
     </div>
   );

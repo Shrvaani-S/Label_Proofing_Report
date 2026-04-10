@@ -15,6 +15,16 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import type { ReportData, MultiRevisionReport, LabelRevision } from '@/common/types';
 
+// ─── Sequential report ID generator ──────────────────────────────────────────
+
+function generateSequentialIds(baseId: string, count: number, offset: number): string[] {
+  const datePrefix  = baseId.slice(0, 8);
+  const baseCounter = parseInt(baseId.slice(8), 10) || 1;
+  return Array.from({ length: count }, (_, i) =>
+    `${datePrefix}${String(baseCounter + offset + i).padStart(4, '0')}`
+  );
+}
+
 // ─── adaptToMultiRevision ─────────────────────────────────────────────────────
 
 function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
@@ -28,7 +38,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
         const page = file.pages[pi];
         if (page.status === 'changed') {
           revisions.push({
-            revisionName:          data.newRevision,
+            revisionName:          page.revisionName || data.newRevision,
             labelName:             page.name || file.fileName,
             fileName:              file.fileName,
             fileIndex:             fi,
@@ -46,7 +56,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
           });
         } else {
           revisions.push({
-            revisionName:          data.newRevision,
+            revisionName:          page.revisionName || data.newRevision,
             labelName:             page.name || file.fileName,
             fileName:              file.fileName,
             fileIndex:             fi,
@@ -57,7 +67,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
             labelUrl:              page.url,
             boxes:                 [],
             hasChanges:            false,
-            requirements:          [],
+            requirements:          commonReqs.map((r, i) => ({ ...r, id: i + 1, status: 'Mismatch' as const })),
             discrepancyCategories: [],
           });
         }
@@ -87,7 +97,8 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
         fileName: data.newLabelName, fileIndex: 0, pageIndex: pi + 1,
         sku: '', labelType: page.labelType, stockNumber: page.stockNumber,
         labelUrl: page.url, boxes: [], hasChanges: false,
-        requirements: [], discrepancyCategories: [],
+        requirements: commonReqs.map((r, i) => ({ ...r, id: i + 1, status: 'Match' as const })),
+        discrepancyCategories: [],
       });
     }
   }
@@ -137,17 +148,38 @@ function RevisionAccordionContent({
   rev: LabelRevision;
 }) {
   if (!rev.hasChanges) {
+    const zeroSummary = {
+      deleted:   { text: 0, symbol: 0, barcode: 0, image: 0 },
+      added:     { text: 0, symbol: 0, barcode: 0, image: 0 },
+      modified:  { text: 0, symbol: 0, barcode: 0, image: 0 },
+      misplaced: { text: 0, symbol: 0, barcode: 0, image: 0 },
+    };
     return (
-      <div className="border-t border-gray-200 p-6">
-        <div className="mb-4">
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 bg-green-50 text-green-700">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-              <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-            </svg>
-            No Changes Required
-          </span>
+      <div className="border-t border-gray-200 divide-y divide-gray-100">
+        <div className="p-6">
+          <div className="mb-4">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 bg-green-50 text-green-700">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+              </svg>
+              No Changes Required
+            </span>
+          </div>
+          <img src={rev.labelUrl} alt={rev.labelName} className="max-w-md h-auto border border-gray-200 block" />
         </div>
-        <img src={rev.labelUrl} alt={rev.labelName} className="max-w-md h-auto border border-gray-200 block" />
+        {rev.requirements.length > 0 && (
+          <>
+            <div className="p-6">
+              <MissingChanges requirements={rev.requirements} />
+            </div>
+            <div className="p-6">
+              <ExpectedChanges data={requirementsToExpectedChanges(rev.requirements)} />
+            </div>
+            <div className="p-6">
+              <InspectionSummary data={zeroSummary} />
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -188,32 +220,55 @@ function RevisionAccordionContent({
 // ─── Accordion preview (Mode B & C) ──────────────────────────────────────────
 
 function MultiRevisionAccordionView({ report }: { report: MultiRevisionReport }) {
+  const changed  = report.revisions.filter(r =>  r.hasChanges);
+  const noChange = report.revisions.filter(r => !r.hasChanges);
+
+  const renderItems = (revs: LabelRevision[]) =>
+    revs.map((rev) => {
+      const key = `${rev.fileIndex}-${rev.pageIndex}`;
+      return (
+        <AccordionItem key={key} value={key} className="border-b border-gray-200 last:border-b-0">
+          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-gray-50 data-[state=open]:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              <span className="text-sm font-bold text-gray-900 shrink-0">
+                {rev.sku || <span className="text-gray-400 font-normal italic text-xs">No SKU</span>}
+              </span>
+              <span className="text-xs text-gray-400 truncate">{rev.labelName}</span>
+              {rev.hasChanges ? (
+                <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 bg-red-50 text-red-700">Changes Made</span>
+              ) : (
+                <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 bg-green-50 text-green-700">No Changes</span>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="pb-0">
+            <RevisionAccordionContent report={report} rev={rev} />
+          </AccordionContent>
+        </AccordionItem>
+      );
+    });
+
   return (
     <div className="max-w-[1600px] mx-auto p-8">
       <Accordion type="multiple" className="bg-white border border-gray-300">
-        {report.revisions.map((rev) => {
-          const key = `${rev.fileIndex}-${rev.pageIndex}`;
-          return (
-            <AccordionItem key={key} value={key} className="border-b border-gray-200 last:border-b-0">
-              <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-gray-50 data-[state=open]:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <span className="text-sm font-bold text-gray-900 shrink-0">
-                    {rev.sku || <span className="text-gray-400 font-normal italic text-xs">No SKU</span>}
-                  </span>
-                  <span className="text-xs text-gray-400 truncate">{rev.labelName}</span>
-                  {rev.hasChanges ? (
-                    <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 bg-red-50 text-red-700">Changes Made</span>
-                  ) : (
-                    <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 bg-green-50 text-green-700">No Changes</span>
-                  )}
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="pb-0">
-                <RevisionAccordionContent report={report} rev={rev} />
-              </AccordionContent>
-            </AccordionItem>
-          );
-        })}
+        {changed.length > 0 && (
+          <>
+            <div className="px-6 py-2.5 bg-gray-100 border-b border-gray-200">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">Changed Labels</span>
+              <span className="ml-2 text-[10px] text-gray-400">({changed.length})</span>
+            </div>
+            {renderItems(changed)}
+          </>
+        )}
+        {noChange.length > 0 && (
+          <>
+            <div className={`px-6 py-2.5 bg-gray-100 border-b border-gray-200 ${changed.length > 0 ? 'border-t border-gray-300' : ''}`}>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">No Change Labels</span>
+              <span className="ml-2 text-[10px] text-gray-400">({noChange.length})</span>
+            </div>
+            {renderItems(noChange)}
+          </>
+        )}
       </Accordion>
     </div>
   );
@@ -385,7 +440,9 @@ export default function App() {
     const filtered = multiRevisionData.revisions.filter(r =>
       selectedKeys.has(`${r.fileIndex}-${r.pageIndex}`)
     );
-    setFilteredRevisions(filtered);
+    const ids = generateSequentialIds(reportData!.reportId, filtered.length, 0);
+    const filteredWithIds = filtered.map((rev, i) => ({ ...rev, reportId: ids[i] }));
+    setFilteredRevisions(filteredWithIds);
     setShowPdfDialog(false);
     triggerMultiPrint.current = true;
     setPrintMode('multi');

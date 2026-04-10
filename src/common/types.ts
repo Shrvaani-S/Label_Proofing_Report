@@ -11,7 +11,7 @@ export interface DrawnBox {
   text?: string;  // optional label text shown above the box
 }
 
-export type RequirementStatus = 'Match' | 'Unmatch';
+export type RequirementStatus = 'Match' | 'Unmatch' | 'Mismatch';
 
 export interface Requirement {
   id: number;
@@ -39,6 +39,7 @@ export interface RevisedLabelPage {
   url: string;
   name: string;
   sku: string;
+  revisionName: string;
   labelType: string;
   stockNumber: string;
   status: 'changed' | 'no-changes';
@@ -58,6 +59,7 @@ export interface LabelRevision {
   fileName: string;
   fileIndex: number;
   pageIndex: number;
+  reportId?: string;
   sku: string;
   labelType: string;
   stockNumber: string;

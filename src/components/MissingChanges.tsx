@@ -2,8 +2,9 @@ import { Badge } from './Badge';
 import type { Requirement, RequirementStatus } from '@/common/types';
 
 const statusColors: Record<RequirementStatus, string> = {
-  'Match':   '#16a34a',
-  'Unmatch': '#dc2626',
+  'Match':    '#16a34a',
+  'Unmatch':  '#dc2626',
+  'Mismatch': '#dc2626',
 };
 
 interface MissingChangesProps {
@@ -37,10 +38,10 @@ export function MissingChanges({ requirements }: MissingChangesProps) {
             <col style={{ width: '5%' }} />
             <col style={{ width: '10%' }} />
             <col style={{ width: '15%' }} />
-            <col style={{ width: '25%' }} />
+            <col style={{ width: '22%' }} />
             <col style={{ width: '18%' }} />
             <col style={{ width: '18%' }} />
-            <col style={{ width: '9%' }} />
+            <col style={{ width: '12%' }} />
           </colgroup>
           <thead>
             <tr className="bg-gray-100 border-b border-gray-300">

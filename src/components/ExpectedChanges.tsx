@@ -173,13 +173,13 @@ export function ExpectedChanges({ data }: { data?: ExpectedChangesData }) {
   function renderSection(label: string, key: string, tabData: ExpectedChangesTabData) {
     return (
       <div key={key} className="space-y-4">
-        <div className="text-xs uppercase tracking-wide font-bold text-gray-600 border-b border-gray-200 pb-1">Expected Changes</div>
+        <div className="text-xs uppercase tracking-wide font-bold text-gray-600 border-b border-gray-200 pb-1">{label}</div>
         {tabData.expected.map((section, sectionIndex) => (
           <div key={section.category}>
             {section.category !== 'Requirements' && (
               <div className="text-xs uppercase tracking-wide text-gray-500 font-bold mb-3 px-2">{section.category}</div>
             )}
-            <table className="w-full border-collapse border border-gray-300 text-sm">
+            <table className="w-full border-collapse border border-gray-300 text-sm" style={{ tableLayout: 'fixed' }}>
               <thead>
                 <tr>
                   <th colSpan={3} className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide bg-[#eff6ff] border-t-4 border-t-[#3b82f6] border-b border-b-gray-300 border-r border-r-gray-400" style={{ color: '#2563eb' }}>
@@ -232,6 +232,9 @@ export function ExpectedChanges({ data }: { data?: ExpectedChangesData }) {
 
   return (
     <div className="bg-white border border-gray-300">
+      <div className="px-6 pt-6 pb-2 border-b border-gray-200">
+        <h3 className="text-sm uppercase tracking-wide font-bold text-gray-700">Expected Changes</h3>
+      </div>
       <div className="p-6 space-y-8">
         {sections.length === 0 ? (
           <div className="text-sm text-gray-400 italic text-center py-4">No requirements data.</div>
