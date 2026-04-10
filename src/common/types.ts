@@ -38,6 +38,7 @@ export interface DiscrepancyCategory {
 export interface RevisedLabelPage {
   url: string;
   name: string;
+  sku: string;
   labelType: string;
   stockNumber: string;
   status: 'changed' | 'no-changes';
@@ -57,6 +58,7 @@ export interface LabelRevision {
   fileName: string;
   fileIndex: number;
   pageIndex: number;
+  sku: string;
   labelType: string;
   stockNumber: string;
   labelUrl: string;

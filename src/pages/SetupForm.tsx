@@ -303,7 +303,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         return [{
           fileName: initialData.newLabelName ?? 'Revised Label',
           pages: initialData.newLabelPages.map((p, i) => ({
-            url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber,
+            url: p.url, name: p.name, sku: '', labelType: p.labelType, stockNumber: p.stockNumber,
             status: i === 0 ? 'changed' : 'no-changes',
             boxes: i === 0 ? (initialData.newBoxes ?? []) : [],
             requirements: [],
@@ -317,7 +317,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
           pages: [{
             url: initialData.newLabelUrl,
             name: initialData.newLabelName ?? '',
-            labelType: '', stockNumber: '',
+            sku: '', labelType: '', stockNumber: '',
             status: 'changed',
             boxes: initialData.newBoxes ?? [],
             requirements: [],
@@ -420,7 +420,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       setRevisedFiles([{
         fileName: d.newLabelName ?? 'Revised Label',
         pages: d.newLabelPages.map((p, i) => ({
-          url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber,
+          url: p.url, name: p.name, sku: '', labelType: p.labelType, stockNumber: p.stockNumber,
           status: i === 0 ? 'changed' : 'no-changes',
           boxes: i === 0 ? d.newBoxes : [],
           requirements: [],
@@ -430,7 +430,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     } else if (d.newLabelUrl) {
       setRevisedFiles([{
         fileName: d.newLabelName ?? 'Revised Label',
-        pages: [{ url: d.newLabelUrl, name: d.newLabelName ?? '', labelType: '', stockNumber: '', status: 'changed', boxes: d.newBoxes ?? [], requirements: [], discrepancyCategories: [] }],
+        pages: [{ url: d.newLabelUrl, name: d.newLabelName ?? '', sku: '', labelType: '', stockNumber: '', status: 'changed', boxes: d.newBoxes ?? [], requirements: [], discrepancyCategories: [] }],
       }]);
     } else {
       setRevisedFiles([]);
@@ -466,7 +466,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         pages: f.pages
           .filter(p => p.status !== 'pending')
           .map(p => ({
-            url: p.url, name: p.name, labelType: p.labelType, stockNumber: p.stockNumber,
+            url: p.url, name: p.name, sku: p.sku ?? '', labelType: p.labelType, stockNumber: p.stockNumber,
             status: p.status as 'changed' | 'no-changes',
             boxes: p.boxes,
             requirements: p.requirements.map((r, i) => ({ ...r, id: i + 1 })),
@@ -570,6 +570,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       pages: urls.map((url, i) => ({
         url,
         name: urls.length > 1 ? `${baseName} (Page ${i + 1})` : baseName,
+        sku: '',
         labelType: '', stockNumber: '',
         status: 'pending' as const,
         boxes: [], requirements: [], discrepancyCategories: [],
@@ -811,13 +812,15 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         {/* 1. Metadata */}
         <div className={sec}>
           <div className={secH}>1. Report Metadata</div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className={`grid gap-4 ${reportMode === 'A' ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <div><label className={lbl}>Report ID (LPR)</label>
               <input className={input} value={reportId} onChange={e => setReportId(e.target.value)} placeholder="e.g. 202603180001" /></div>
             <div><label className={lbl}>CR Number (Optional)</label>
               <input className={input} value={crNumber} onChange={e => setCrNumber(e.target.value)} placeholder="-" /></div>
-            <div><label className={lbl}>SKU</label>
-              <input className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="e.g. 187301111" required /></div>
+            {reportMode === 'A' && (
+              <div><label className={lbl}>SKU</label>
+                <input className={input} value={sku} onChange={e => setSku(e.target.value)} placeholder="e.g. 187301111" required /></div>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-4">
             <div><label className={lbl}>Current Revision</label>
@@ -897,7 +900,12 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
                               <input className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none"
                                 value={page.name} placeholder="LCN / Label Name"
                                 onChange={e => updatePage(fi, pi, 'name', e.target.value)} />
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className={`grid gap-2 ${reportMode !== 'A' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                                {reportMode !== 'A' && (
+                                  <input className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none"
+                                    value={page.sku ?? ''} placeholder="SKU"
+                                    onChange={e => updatePage(fi, pi, 'sku', e.target.value)} />
+                                )}
                                 <input className="w-full border border-gray-300 px-2 py-1 text-xs focus:outline-none"
                                   value={page.labelType} placeholder="Label Type"
                                   onChange={e => updatePage(fi, pi, 'labelType', e.target.value)} />

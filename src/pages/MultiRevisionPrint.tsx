@@ -66,7 +66,7 @@ function PrintPageHeader({
       <div className="bg-white border border-gray-300 grid" style={{ gridTemplateColumns: '0.7fr 0.7fr 1fr 1.5fr 1.5fr' }}>
         {[
           { label: 'CR Number',             value: report.crNumber || '-' },
-          { label: 'SKU',                   value: report.sku },
+          { label: 'SKU',                   value: report.mode === 'A' ? report.sku : (revision.sku || '—') },
           { label: 'Label Revision',        value: `${report.currentRevision} → ${revision.revisionName}` },
           { label: 'Current Version Label', value: basePage?.name ?? report.currentLabelName },
           { label: 'New Version Label',     value: revision.labelName },
@@ -125,11 +125,11 @@ function PrintCoverPage({
             <tbody>
               {(() => {
                 // Group by fileIndex — keeps each uploaded file as its own group
-                const groups: { fileIndex: number; fileName: string; sku: string; revs: LabelRevision[] }[] = [];
+                const groups: { fileIndex: number; fileName: string; revs: LabelRevision[] }[] = [];
                 for (const rev of selectedRevisions) {
                   const existing = groups.find(g => g.fileIndex === rev.fileIndex);
                   if (existing) { existing.revs.push(rev); }
-                  else { groups.push({ fileIndex: rev.fileIndex, fileName: rev.fileName, sku: report.sku, revs: [rev] }); }
+                  else { groups.push({ fileIndex: rev.fileIndex, fileName: rev.fileName, revs: [rev] }); }
                 }
                 const lastGroupIdx = groups.length - 1;
                 return groups.map((group, gi) => {
@@ -142,15 +142,17 @@ function PrintCoverPage({
                     const rowBorder = isLastInGroup
                       ? (isLastGroup ? '' : 'border-b border-gray-300')
                       : 'border-b border-gray-100';
+                    // SKU: global for Mode A, per-revision for B & C
+                    const skuValue = report.mode === 'A' ? report.sku : (rev.sku || '—');
                     return (
                       <tr key={`${group.fileIndex}-${ri}`}>
                         {isFirst && (
                           <>
                             <td rowSpan={span} className={`px-4 py-2.5 text-gray-400 border-r border-gray-200 align-top ${isLastGroup ? '' : 'border-b border-gray-300'}`}>{gi + 1}</td>
                             <td rowSpan={span} className={`px-4 py-2.5 text-gray-700 border-r border-gray-200 break-all align-top ${isLastGroup ? '' : 'border-b border-gray-300'}`}>{group.fileName}</td>
-                            <td rowSpan={span} className={`px-4 py-2.5 text-gray-900 border-r border-gray-200 align-top ${isLastGroup ? '' : 'border-b border-gray-300'}`}>{group.sku}</td>
                           </>
                         )}
+                        <td className={`px-4 py-2.5 text-gray-900 border-r border-gray-200 ${rowBorder}`}>{skuValue}</td>
                         <td className={`px-4 py-2.5 text-gray-800 font-semibold border-r border-gray-200 ${rowBorder}`}>{rev.labelType || '—'}</td>
                         <td className={`px-4 py-2.5 text-gray-700 font-mono border-r border-gray-200 ${rowBorder}`}>{rev.stockNumber || '—'}</td>
                         <td className={`px-4 py-2.5 text-gray-700 border-r border-gray-200 ${rowBorder}`}>{report.currentRevision} → {rev.revisionName}</td>
@@ -307,47 +309,95 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
         </div>
       ))}
 
-      {/* No-change labels — 2 per page in a grid */}
-      {noChangePairs.map((pair, pi) => (
-        <div key={pi} style={{ pageBreakBefore: 'always' }}>
-          <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
-            <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">
-              Labels — No Changes Required
-            </span>
-            <span className="text-[10px] text-gray-400">
-              {pair.map(r => r.revisionName).join(' · ')}
-            </span>
-          </div>
-          <div className={`p-8 grid gap-6 ${pair.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-            {pair.map((rev) => (
-              <div key={`${rev.fileIndex}-${rev.pageIndex}`} className="border border-gray-200 bg-white">
-                <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {rev.labelType && (
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-gray-700">{rev.labelType}</span>
-                      )}
-                      {rev.stockNumber && (
-                        <span className="text-[10px] font-mono text-gray-500">{rev.stockNumber}</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
-                  </div>
-                  <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 bg-green-50 text-green-700">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                      <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-                    </svg>
-                    No Changes
-                  </span>
+      {/* No-change labels */}
+      {report.mode === 'C' ? (
+        // Mode C — one label per page, base + revised side by side
+        noChangeRevs.map((rev) => {
+          const basePage  = report.currentLabelPages[rev.pageIndex];
+          const baseUrl   = basePage?.url  ?? report.currentLabelUrl;
+          const baseName  = basePage?.name ?? report.currentLabelName;
+          return (
+            <div key={`${rev.fileIndex}-${rev.pageIndex}`} style={{ pageBreakBefore: 'always' }}>
+              <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
+                <div className="flex items-center gap-3">
+                  {rev.sku && <span className="text-xs font-bold text-gray-900">{rev.sku}</span>}
+                  <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">No Changes Required</span>
                 </div>
-                <div className="p-4">
-                  <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
+                <div className="flex items-center gap-3">
+                  {rev.labelType && <span className="text-[10px] font-bold uppercase text-gray-500">{rev.labelType}</span>}
+                  {rev.stockNumber && <span className="text-[10px] font-mono text-gray-400">{rev.stockNumber}</span>}
+                  <span className="text-[10px] text-gray-400">{rev.revisionName}</span>
                 </div>
               </div>
-            ))}
+              <div className="p-8 grid grid-cols-2 gap-6">
+                <div className="border border-gray-200 bg-white">
+                  <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
+                    <div className="text-[10px] text-gray-400 truncate mt-0.5">{baseName}</div>
+                  </div>
+                  <div className="p-4">
+                    <img src={baseUrl} alt={baseName} className="w-full h-auto block" />
+                  </div>
+                </div>
+                <div className="border border-gray-200 bg-white">
+                  <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200">
+                    <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">New Version</div>
+                    <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
+                  </div>
+                  <div className="p-4">
+                    <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      ) : (
+        // Mode A & B — 2 labels per page, revised image only
+        noChangePairs.map((pair, pi) => (
+          <div key={pi} style={{ pageBreakBefore: 'always' }}>
+            <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
+              <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">
+                Labels — No Changes Required
+              </span>
+              <span className="text-[10px] text-gray-400">
+                {pair.map(r => r.revisionName).join(' · ')}
+              </span>
+            </div>
+            <div className={`p-8 grid gap-6 ${pair.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {pair.map((rev) => (
+                <div key={`${rev.fileIndex}-${rev.pageIndex}`} className="border border-gray-200 bg-white">
+                  <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      {report.mode !== 'A' && rev.sku && (
+                        <div className="text-xs font-bold text-gray-900 mb-1">{rev.sku}</div>
+                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {rev.labelType && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-gray-700">{rev.labelType}</span>
+                        )}
+                        {rev.stockNumber && (
+                          <span className="text-[10px] font-mono text-gray-500">{rev.stockNumber}</span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
+                    </div>
+                    <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 bg-green-50 text-green-700">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                        <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+                      </svg>
+                      No Changes
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))
+      )}
     </div>
   );
 }

@@ -17,6 +17,11 @@
   /* Hide only the buttons/controls inside the header, keep the title */
   .print\:hidden { display: none !important; }
 
+  /* Hide Radix dialog (overlay + content + portal) from print output */
+  [data-slot="dialog-overlay"],
+  [data-slot="dialog-content"],
+  [data-slot="dialog-portal"] { display: none !important; }
+
   /* Remove screen background so paper is white */
   body, #root, .min-h-screen { background: white !important; }
 
