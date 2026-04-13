@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString();
-import type { ReportData, Requirement, DiscrepancyCategory, DiscrepancyItem, ElementType, ChangeType, RequirementStatus, DrawnBox, RevisedFile, RevisedLabelPage, ReportMode } from '@/common/types';
+import type { ReportData, Requirement, UnexpectedChange, DiscrepancyCategory, DiscrepancyItem, ElementType, ChangeType, RequirementStatus, DrawnBox, RevisedFile, RevisedLabelPage, ReportMode } from '@/common/types';
 import { BoundingBoxDrawer } from '@/components/BoundingBoxDrawer';
 import { getDrafts, loadDraft, saveDraft, deleteDraft, toDataUrl, type Draft } from '@/services/drafts';
 
@@ -13,6 +13,7 @@ interface SetupFormProps {
 // ─── Local form state for a revised page (adds 'pending' status) ──────────────
 interface RevisedPageState extends Omit<RevisedLabelPage, 'status'> {
   status: 'pending' | 'changed' | 'no-changes';
+  unexpectedChanges: UnexpectedChange[];
 }
 interface RevisedFileState {
   fileName: string;
@@ -26,6 +27,10 @@ const REQ_STATUSES: RequirementStatus[] = ['Match', 'Unmatch'];
 
 function makeRequirement(id: number): Requirement {
   return { id, elementType: 'Text', changeType: 'Modified', description: '', expectedValue: '', actualValue: '', status: 'Match' };
+}
+
+function makeUnexpectedChange(id: number): UnexpectedChange {
+  return { id, elementType: 'Text', changeType: 'Modified', description: '', actualValue: '', status: 'Match' };
 }
 
 function makeCategory(): DiscrepancyCategory {
@@ -168,6 +173,80 @@ function RequirementsTable({
   );
 }
 
+// ─── Unexpected changes table ─────────────────────────────────────────────────
+function UnexpectedChangesTable({
+  items,
+  onAdd,
+  onUpdate,
+  onDelete,
+}: {
+  items: UnexpectedChange[];
+  onAdd: () => void;
+  onUpdate: (i: number, field: keyof UnexpectedChange, value: string) => void;
+  onDelete: (i: number) => void;
+}) {
+  const inp = "w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none";
+  const sel = "w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none bg-white";
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: '3%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '32%' }} />
+            <col style={{ width: '20%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '6%' }} />
+          </colgroup>
+          <thead>
+            <tr className="bg-gray-100 border-b border-gray-300">
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">#</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Element</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Change Type</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Requirements</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Actual Value</th>
+              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Status</th>
+              <th className="px-2 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={i} className="border-b border-gray-200">
+                <td className="px-2 py-1 text-gray-400">{i + 1}</td>
+                <td className="px-2 py-1">
+                  <select className={sel} value={item.elementType} onChange={e => onUpdate(i, 'elementType', e.target.value)}>
+                    {ELEMENT_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1">
+                  <select className={sel} value={item.changeType} onChange={e => onUpdate(i, 'changeType', e.target.value)}>
+                    {CHANGE_TYPES_REQ.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1"><input className={inp} value={item.description} onChange={e => onUpdate(i, 'description', e.target.value)} placeholder="Description" /></td>
+                <td className="px-2 py-1"><input className={inp} value={item.actualValue} onChange={e => onUpdate(i, 'actualValue', e.target.value)} placeholder="Actual" /></td>
+                <td className="px-2 py-1">
+                  <select className={sel} value={item.status} onChange={e => onUpdate(i, 'status', e.target.value)}>
+                    {REQ_STATUSES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </td>
+                <td className="px-2 py-1 text-center">
+                  <button type="button" onClick={() => onDelete(i)} className="text-gray-400 hover:text-red-500 font-bold text-base leading-none">×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button type="button" onClick={onAdd} className="text-xs border border-gray-300 px-3 py-1.5 text-gray-600 hover:bg-gray-50 transition-colors">
+        + Add Unexpected Change
+      </button>
+    </div>
+  );
+}
+
 // ─── Discrepancy categories (reusable) ───────────────────────────────────────
 function DiscrepancySection({
   categories,
@@ -278,6 +357,11 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       : [makeRequirement(1)]
   );
 
+  // ── Common unexpected changes ──
+  const [commonUnexpectedChanges, setCommonUnexpectedChanges] = useState<UnexpectedChange[]>(
+    (initialData?.commonUnexpectedChanges ?? auto?.commonUnexpectedChanges) ?? []
+  );
+
   // ── Common discrepancy categories ──
   const [commonCategories, setCommonCategories] = useState<DiscrepancyCategory[]>(
     (initialData?.discrepancyCategories ?? auto?.discrepancyCategories)?.length
@@ -344,20 +428,24 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         reportId, crNumber, sku, currentRevision, newRevision,
         currentLabelName, currentLabelUrl, currentLabelPages, currentBoxes,
         commonRequirements,
-        discrepancyCategories: commonCategories,
+        commonUnexpectedChanges,
         revisedFiles,
         ...deriveLegacyFields(),
+        discrepancyCategories: commonCategories,
       }));
     } catch { /* quota */ }
   }, [reportMode, reportId, crNumber, sku, currentRevision, newRevision,
       currentLabelName, currentLabelUrl, currentLabelPages, currentBoxes,
-      commonRequirements, commonCategories, revisedFiles, isEditing]);
+      commonRequirements, commonUnexpectedChanges, commonCategories, revisedFiles, isEditing]);
 
   useEffect(() => {
     getDrafts().then(list => {
       setDrafts(list);
       const last = localStorage.getItem('lastDraftId');
-      if (last && list.some(d => d.id === last)) setSelectedDraftId(last);
+      if (last && list.some(d => d.id === last)) {
+        setSelectedDraftId(last);
+        loadDraft(last).then(draft => { if (draft.data) loadDraftData(draft.data); }).catch(() => {});
+      }
     }).catch(() => {});
   }, []);
 
@@ -414,6 +502,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         : [makeRequirement(1)]
     );
     setCommonCategories(d.discrepancyCategories?.length ? d.discrepancyCategories : [makeCategory()]);
+    setCommonUnexpectedChanges(d.commonUnexpectedChanges ?? []);
     if (d.revisedFiles?.length) {
       setRevisedFiles(d.revisedFiles.map(f => ({ ...f, pages: f.pages.map(p => ({ ...p })) })));
     } else if (d.newLabelPages?.length) {
@@ -461,6 +550,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       discrepancyCategories: legacy.discrepancyCategories,
       newLabelPages: legacy.newLabelPages,
       commonRequirements: commonRequirements.map((r, i) => ({ ...r, id: i + 1 })),
+      commonUnexpectedChanges: commonUnexpectedChanges.map((r, i) => ({ ...r, id: i + 1 })),
       revisedFiles: revisedFiles.map(f => ({
         fileName: f.fileName,
         pages: f.pages
@@ -470,6 +560,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
             status: p.status as 'changed' | 'no-changes',
             boxes: p.boxes,
             requirements: p.requirements.map((r, i) => ({ ...r, id: i + 1 })),
+            unexpectedChanges: (p.unexpectedChanges ?? []).map((r, i) => ({ ...r, id: i + 1 })),
             discrepancyCategories: p.discrepancyCategories.filter(c => c.title || c.items.length),
           })),
       })),
@@ -578,7 +669,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         sku: '', revisionName: '',
         labelType: '', stockNumber: '',
         status: 'pending' as const,
-        boxes: [], requirements: [], discrepancyCategories: [],
+        boxes: [], requirements: [], unexpectedChanges: [], discrepancyCategories: [],
       })),
     };
   };
@@ -640,6 +731,33 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       }),
     }));
 
+  const addPageUnexpectedChange = (fi: number, pi: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        unexpectedChanges: [...(p.unexpectedChanges ?? []), makeUnexpectedChange((p.unexpectedChanges?.length ?? 0) + 1)],
+      }),
+    }));
+
+  const updatePageUnexpectedChange = (fi: number, pi: number, ri: number, field: keyof UnexpectedChange, value: string) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        unexpectedChanges: (p.unexpectedChanges ?? []).map((r, k) => k !== ri ? r : { ...r, [field]: value }),
+      }),
+    }));
+
+  const deletePageUnexpectedChange = (fi: number, pi: number, ri: number) =>
+    setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
+      ...f,
+      pages: f.pages.map((p, j) => j !== pi ? p : {
+        ...p,
+        unexpectedChanges: (p.unexpectedChanges ?? []).filter((_, k) => k !== ri).map((r, k) => ({ ...r, id: k + 1 })),
+      }),
+    }));
+
   const addPageCategory = (fi: number, pi: number) =>
     setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
       ...f,
@@ -698,6 +816,14 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     setCommonRequirements(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
   const deleteCommonReq = (i: number) =>
     setCommonRequirements(prev => prev.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, id: idx + 1 })));
+
+  // ── Common unexpected changes handlers ─────────────────────────────────────
+  const addCommonUnexpected = () =>
+    setCommonUnexpectedChanges(prev => [...prev, makeUnexpectedChange(prev.length + 1)]);
+  const updateCommonUnexpected = (i: number, field: keyof UnexpectedChange, value: string) =>
+    setCommonUnexpectedChanges(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
+  const deleteCommonUnexpected = (i: number) =>
+    setCommonUnexpectedChanges(prev => prev.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, id: idx + 1 })));
 
   // ── Common categories handlers ──────────────────────────────────────────────
   const addCommonCat    = () => setCommonCategories(prev => [...prev, makeCategory()]);
@@ -954,6 +1080,18 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
                                   onDelete={ri => deletePageReq(fi, pi, ri)} />
                               </div>
                               <div>
+                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-2">
+                                  Label-Specific Unexpected Changes
+                                  <span className="ml-1 text-gray-400 normal-case font-normal">(adds to common unexpected changes)</span>
+                                </div>
+                                <UnexpectedChangesTable
+                                  items={page.unexpectedChanges ?? []}
+                                  onAdd={() => addPageUnexpectedChange(fi, pi)}
+                                  onUpdate={(ri, field, value) => updatePageUnexpectedChange(fi, pi, ri, field, value)}
+                                  onDelete={ri => deletePageUnexpectedChange(fi, pi, ri)}
+                                />
+                              </div>
+                              <div>
                                 <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-2">Changes Made</div>
                                 <DiscrepancySection categories={page.discrepancyCategories}
                                   onAddCategory={() => addPageCategory(fi, pi)}
@@ -995,9 +1133,21 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
           />
         </div>
 
-        {/* 4. Common Changes Made */}
+        {/* 4. Common Unexpected Changes */}
         <div className={sec}>
-          <div className={secH}>4. Common Changes Made</div>
+          <div className={secH}>4. Common Unexpected Changes</div>
+          <p className="text-xs text-gray-500">Changes that occurred but were <strong>not</strong> in the requirements. Apply across all revised labels. Label-specific unexpected changes can be added per page above.</p>
+          <UnexpectedChangesTable
+            items={commonUnexpectedChanges}
+            onAdd={addCommonUnexpected}
+            onUpdate={updateCommonUnexpected}
+            onDelete={deleteCommonUnexpected}
+          />
+        </div>
+
+        {/* 5. Common Changes Made */}
+        <div className={sec}>
+          <div className={secH}>5. Common Changes Made</div>
           <p className="text-xs text-gray-500">Changes that apply across all revised labels. Group by category (e.g. TEXT, SYMBOLS). Label-specific changes can be added per page above.</p>
           <DiscrepancySection
             categories={commonCategories}

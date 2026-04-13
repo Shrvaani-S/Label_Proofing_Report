@@ -1,19 +1,17 @@
 /**
  * Multi-Revision Print Layout
  *
- * Renders the printable report for all three modes:
- *   A — Existing + Master: purely visual side-by-side comparison, no requirements tables.
- *   B — Supportive + Master: revised label only with full requirements / discrepancy detail.
- *   C — Full Comparison: side-by-side images + full requirements / discrepancy detail.
+ * Unified page structure for all modes and all labels (changed + no-change):
+ *   Page 1 — Requirements table (5 cols: #, Element, Change Type, Requirements, Expected)
+ *   Page 2 — Labels stacked vertically (Mode B: new label only; Mode A/C: current then new)
+ *   Page 3 — Report Table: Expected Changes (7 cols) + Unexpected Changes (6 cols)
+ *   Page 4 — Inspection Summary + Changes Made (no-change: zero + dotted placeholder)
  */
 
-import { MissingChanges }                  from '@/components/MissingChanges';
-import { LabelComparison }                 from '@/components/LabelComparison';
 import { InspectionSummary }               from '@/components/InspectionSummary';
 import { DiscrepancyDetails }              from '@/components/DiscrepancyDetails';
-import { ExpectedChanges }                 from '@/components/ExpectedChanges';
-import { requirementsToExpectedChanges }   from '@/utils/requirementsToExpectedChanges';
-import type { MultiRevisionReport, LabelRevision } from '@/common/types';
+import { Badge }                           from '@/components/Badge';
+import type { MultiRevisionReport, LabelRevision, UnexpectedChange, Requirement } from '@/common/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,21 +28,218 @@ function matchCount(rev: LabelRevision) {
   return { matched, total: rev.requirements.length };
 }
 
-function computeSummaryData(requirements: LabelRevision['requirements']) {
+function computeSummaryData(
+  requirements: LabelRevision['requirements'],
+  unexpectedChanges: LabelRevision['unexpectedChanges'] = [],
+) {
   const data = {
     deleted:   { text: 0, symbol: 0, barcode: 0, image: 0 },
     added:     { text: 0, symbol: 0, barcode: 0, image: 0 },
     modified:  { text: 0, symbol: 0, barcode: 0, image: 0 },
     misplaced: { text: 0, symbol: 0, barcode: 0, image: 0 },
   };
-  for (const req of requirements) {
-    const ctKey = req.changeType.toLowerCase() as keyof typeof data;
-    const etKey = req.elementType.toLowerCase() as 'text' | 'symbol' | 'image';
+  for (const item of [...requirements, ...unexpectedChanges]) {
+    const ctKey = item.changeType.toLowerCase() as keyof typeof data;
+    const etKey = item.elementType.toLowerCase() as 'text' | 'symbol' | 'image';
     if (ctKey in data && etKey in data[ctKey]) {
       (data[ctKey] as Record<string, number>)[etKey]++;
     }
   }
   return data;
+}
+
+// ─── Label image with bounding box overlays ───────────────────────────────────
+
+const BOX_COLORS: Record<string, string> = {
+  Modified:     '#2563eb',
+  Added:        '#15803d',
+  Deleted:      '#de2626',
+  Misplaced:    '#f5a30a',
+  Repositioned: '#f5a30a',
+};
+
+function LabelWithBoxes({ src, alt, boxes, maxHeight }: { src: string; alt: string; boxes: import('@/common/types').DrawnBox[]; maxHeight?: string }) {
+  return (
+    <div className="flex justify-center">
+      <div className="relative" style={{ display: 'inline-block' }}>
+      <img src={src} alt={alt} style={maxHeight ? { maxHeight, width: 'auto', maxWidth: '100%', display: 'block' } : { width: '100%', height: 'auto', display: 'block' }} />
+      {boxes?.map(box => {
+        const color = BOX_COLORS[box.type] ?? '#2563eb';
+        return (
+          <div key={box.id}>
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                top:             `${box.top}%`,
+                left:            `${box.left}%`,
+                width:           `${box.width}%`,
+                height:          `${box.height}%`,
+                border:          `2px solid ${color}`,
+                backgroundColor: 'transparent',
+              }}
+            />
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                top:       `${box.top}%`,
+                left:      `${box.left}%`,
+                transform: 'translateY(calc(-100% - 2px))',
+              }}
+            >
+              <span className="font-semibold whitespace-nowrap block" style={{ color, fontSize: '9px', lineHeight: 1 }}>
+                {box.text || box.type}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Page 1: Requirements table (5 columns) ──────────────────────────────────
+
+function RequirementsTablePrint({ requirements }: { requirements: Requirement[] }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm uppercase tracking-wide font-bold text-gray-700">Requirements Summary</h3>
+        <span className="px-2 py-1 bg-gray-100 text-gray-600 font-semibold text-xs">
+          {requirements.length} Requirements
+        </span>
+      </div>
+      <div className="bg-white border border-gray-300 overflow-hidden print-table-flow">
+        <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+          <colgroup>
+            <col style={{ width: '5%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '35%' }} />
+            <col style={{ width: '35%' }} />
+          </colgroup>
+          <thead>
+            <tr className="bg-gray-100 border-b border-gray-300">
+              {['#', 'Element', 'Change Type', 'Requirements', 'Expected'].map((h, i, arr) => (
+                <th key={h} className={`px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold ${i < arr.length - 1 ? 'border-r border-gray-200' : ''}`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {requirements.map((req) => (
+              <tr key={req.id} className="border-b border-gray-200 last:border-0 text-xs">
+                <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{req.id}</td>
+                <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{req.elementType}</td>
+                <td className="px-2 py-1.5 border-r border-gray-200">
+                  <Badge type={req.changeType as 'Modified' | 'Added' | 'Deleted'} />
+                </td>
+                <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{req.description}</td>
+                <td className="px-2 py-1.5 text-gray-900" style={{ wordBreak: 'break-word' }}>{req.expectedValue}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page 3: Report Table (Expected + Unexpected Changes) ─────────────────────
+
+function ReportTable({
+  requirements,
+  unexpectedChanges,
+}: {
+  requirements: Requirement[];
+  unexpectedChanges: UnexpectedChange[];
+}) {
+  const statusColor = (s: string) => s === 'Match' ? '#16a34a' : '#dc2626';
+
+  return (
+    <div className="space-y-8">
+      <h3 className="text-sm uppercase tracking-wide font-bold text-gray-700">Report Details</h3>
+
+      {/* Expected Changes */}
+      <div className="space-y-3">
+        <h4 className="text-xs uppercase tracking-wide font-bold text-gray-600">Expected Changes</h4>
+        <div className="bg-white border border-gray-300 overflow-hidden">
+          <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: '4%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '26%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '12%' }} />
+            </colgroup>
+            <thead>
+              <tr className="bg-gray-100 border-b border-gray-300">
+                {['#', 'Element', 'Change Type', 'Requirements', 'Expected', 'Actual', 'Status'].map((h, i, arr) => (
+                  <th key={h} className={`px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold whitespace-nowrap ${i < arr.length - 1 ? 'border-r border-gray-200' : ''}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {requirements.length === 0 ? (
+                <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400 text-xs">No expected changes</td></tr>
+              ) : requirements.map((req) => (
+                <tr key={req.id} className="border-b border-gray-200 last:border-0 text-xs">
+                  <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{req.id}</td>
+                  <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{req.elementType}</td>
+                  <td className="px-2 py-1.5 border-r border-gray-200"><Badge type={req.changeType as 'Modified' | 'Added' | 'Deleted'} /></td>
+                  <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{req.description}</td>
+                  <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{req.expectedValue}</td>
+                  <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{req.actualValue}</td>
+                  <td className="px-2 py-1.5 font-semibold whitespace-nowrap" style={{ color: statusColor(req.status) }}>{req.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Unexpected Changes */}
+      <div className="space-y-3">
+        <h4 className="text-xs uppercase tracking-wide font-bold text-gray-600">Unexpected Changes</h4>
+        {unexpectedChanges.length === 0 ? (
+          <div className="border-2 border-dashed border-gray-300 py-8 flex items-center justify-center">
+            <span className="text-gray-400 text-xs font-medium tracking-wide uppercase">No unexpected changes</span>
+          </div>
+        ) : (
+          <div className="bg-white border border-gray-300 overflow-hidden">
+            <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '4%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '17%' }} />
+                <col style={{ width: '38%' }} />
+                <col style={{ width: '30%' }} />
+              </colgroup>
+              <thead>
+                <tr className="bg-gray-100 border-b border-gray-300">
+                  {['#', 'Element', 'Change Type', 'Requirements', 'Actual'].map((h, i, arr) => (
+                    <th key={h} className={`px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold whitespace-nowrap ${i < arr.length - 1 ? 'border-r border-gray-200' : ''}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {unexpectedChanges.map((uc) => (
+                  <tr key={uc.id} className="border-b border-gray-200 last:border-0 text-xs">
+                    <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{uc.id}</td>
+                    <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{uc.elementType}</td>
+                    <td className="px-2 py-1.5 border-r border-gray-200"><Badge type={uc.changeType as 'Modified' | 'Added' | 'Deleted'} /></td>
+                    <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{uc.description}</td>
+                    <td className="px-2 py-1.5 text-gray-900" style={{ wordBreak: 'break-word' }}>{uc.actualValue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── Per-revision page header ─────────────────────────────────────────────────
@@ -100,7 +295,6 @@ function PrintCoverPage({
 }) {
   return (
     <div>
-      {/* Red banner — title, report ID, logo only */}
       <div className="px-8 py-5 flex items-start justify-between" style={{ backgroundColor: '#D71500' }}>
         <div className="space-y-1">
           <h1 className="text-white text-2xl leading-tight">Label Proofing Report</h1>
@@ -133,7 +327,6 @@ function PrintCoverPage({
             </thead>
             <tbody>
               {(() => {
-                // Group by fileIndex — keeps each uploaded file as its own group
                 const groups: { fileIndex: number; fileName: string; revs: LabelRevision[] }[] = [];
                 for (const rev of selectedRevisions) {
                   const existing = groups.find(g => g.fileIndex === rev.fileIndex);
@@ -151,7 +344,6 @@ function PrintCoverPage({
                     const rowBorder = isLastInGroup
                       ? (isLastGroup ? '' : 'border-b border-gray-300')
                       : 'border-b border-gray-100';
-                    // SKU: global for Mode A, per-revision for B & C
                     const skuValue = report.mode === 'A' ? report.sku : (rev.sku || '—');
                     return (
                       <tr key={`${group.fileIndex}-${ri}`}>
@@ -190,7 +382,7 @@ function PrintCoverPage({
   );
 }
 
-// ─── Per-changed-revision body sections ───────────────────────────────────────
+// ─── Unified revision body (all modes, changed + no-change) ──────────────────
 
 function RevisionBody({
   report, rev,
@@ -198,90 +390,90 @@ function RevisionBody({
   report: MultiRevisionReport;
   rev: LabelRevision;
 }) {
-  const mode = report.mode;
+  const mode      = report.mode;
   const basePage  = report.currentLabelPages[rev.pageIndex];
-  const baseUrl   = basePage?.url   ?? report.currentLabelUrl;
-  const baseName  = basePage?.name  ?? report.currentLabelName;
-  const baseBoxes = basePage?.boxes ?? report.currentBoxes;
+  const baseUrl   = basePage?.url  ?? report.currentLabelUrl;
+  const baseName  = basePage?.name ?? report.currentLabelName;
+  const isNoChange = !rev.hasChanges;
 
-  if (mode === 'A') {
-    // Base vs revised side-by-side + requirements summary + changes made
-    return (
-      <>
-        <div className="p-8">
-          <LabelComparison
-            show="both"
-            currentLabelUrl={baseUrl}
-            currentLabelName={baseName}
-            newLabelUrl={rev.labelUrl}
-            newLabelName={rev.labelName}
-            currentBoxes={baseBoxes}
-            newBoxes={rev.boxes}
-          />
-        </div>
-        <div className="print-break-before p-8">
-          <MissingChanges requirements={rev.requirements} />
-        </div>
-        <div className="print-break-before p-8 space-y-6">
-          <InspectionSummary data={computeSummaryData(rev.requirements)} />
-          <DiscrepancyDetails categories={rev.discrepancyCategories} />
-        </div>
-      </>
-    );
-  }
+  // Requirements for page 1 — no-change labels show Mismatch so auditors can see what was required
+  const reqsForPage1 = rev.requirements;
 
-  if (mode === 'B') {
-    // Requirements-based — revised label only + all detail sections
-    return (
-      <>
-        <div className="p-8">
-          <MissingChanges requirements={rev.requirements} />
-        </div>
-        <div className="print-break-before p-8">
-          <ExpectedChanges data={requirementsToExpectedChanges(rev.requirements)} />
-        </div>
-        <div className="print-break-before p-8">
-          <LabelComparison
-            show="master"
-            currentLabelUrl={baseUrl}
-            currentLabelName={baseName}
-            newLabelUrl={rev.labelUrl}
-            newLabelName={rev.labelName}
-            currentBoxes={baseBoxes}
-            newBoxes={rev.boxes}
-          />
-        </div>
-        <div className="print-break-before p-8 space-y-6">
-          <InspectionSummary data={computeSummaryData(rev.requirements)} />
-          <DiscrepancyDetails categories={rev.discrepancyCategories} />
-        </div>
-      </>
-    );
-  }
-
-  // Mode C — full comparison: requirements + both images + detail
   return (
     <>
+      {/* Page 1: Requirements table (5 cols) */}
       <div className="p-8">
-        <MissingChanges requirements={rev.requirements} />
+        <RequirementsTablePrint requirements={reqsForPage1} />
       </div>
-      <div className="print-break-before p-8">
-        <ExpectedChanges data={requirementsToExpectedChanges(rev.requirements)} />
+
+      {/* Page 2: Labels stacked vertically */}
+      <div className="print-break-before px-8 pt-6 pb-4 space-y-4">
+        {/* Current version — shown in Mode A and C */}
+        {mode !== 'B' && (
+          <div className="bg-white border border-gray-200">
+            <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
+                <div className="text-[10px] text-gray-400 mt-0.5">{baseName}</div>
+              </div>
+              {isNoChange && (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                    <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+                  </svg>
+                  No Changes
+                </span>
+              )}
+            </div>
+            <div className="p-4">
+              <LabelWithBoxes src={baseUrl} alt={baseName} boxes={basePage?.boxes ?? []} maxHeight="105mm" />
+            </div>
+          </div>
+        )}
+
+        {/* New version — always shown */}
+        <div className="bg-white border border-gray-200">
+          <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">New Version</div>
+              <div className="text-[10px] text-gray-400 mt-0.5">{rev.labelName}</div>
+            </div>
+            {isNoChange && (
+              <span className="flex items-center gap-1 text-[10px] font-semibold text-green-600">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
+                </svg>
+                No Changes
+              </span>
+            )}
+          </div>
+          <div className="p-4">
+            <LabelWithBoxes src={rev.labelUrl} alt={rev.labelName} boxes={rev.boxes ?? []} maxHeight={mode !== 'B' ? '105mm' : undefined} />
+          </div>
+        </div>
       </div>
+
+      {/* Page 3: Report Table */}
       <div className="print-break-before p-8">
-        <LabelComparison
-          show="both"
-          currentLabelUrl={baseUrl}
-          currentLabelName={baseName}
-          newLabelUrl={rev.labelUrl}
-          newLabelName={rev.labelName}
-          currentBoxes={baseBoxes}
-          newBoxes={rev.boxes}
+        <ReportTable
+          requirements={rev.requirements}
+          unexpectedChanges={rev.unexpectedChanges}
         />
       </div>
+
+      {/* Page 4: Inspection Summary + Changes Made */}
       <div className="print-break-before p-8 space-y-6">
-        <InspectionSummary data={computeSummaryData(rev.requirements)} />
-        <DiscrepancyDetails categories={rev.discrepancyCategories} />
+        <InspectionSummary data={isNoChange ? ZERO_SUMMARY : computeSummaryData(rev.requirements, rev.unexpectedChanges)} />
+        {isNoChange ? (
+          <div className="space-y-4">
+            <h3 className="text-sm uppercase tracking-wide font-bold text-gray-700">Changes Made</h3>
+            <div className="border-2 border-dashed border-gray-300 py-10 flex items-center justify-center">
+              <span className="text-gray-400 text-xs font-medium tracking-widest uppercase">No Changes</span>
+            </div>
+          </div>
+        ) : (
+          <DiscrepancyDetails categories={rev.discrepancyCategories} />
+        )}
       </div>
     </>
   );
@@ -290,20 +482,11 @@ function RevisionBody({
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionReport }) {
-  // Changed labels first, no-change labels after (for the detail pages)
+  // Changed labels first, no-change labels after
   const ordered = [
     ...report.revisions.filter(r => r.hasChanges),
     ...report.revisions.filter(r => !r.hasChanges),
   ];
-
-  const changedRevs  = ordered.filter(r => r.hasChanges);
-  const noChangeRevs = ordered.filter(r => !r.hasChanges);
-
-  // Group no-change revisions into pairs for 2-column pages
-  const noChangePairs: LabelRevision[][] = [];
-  for (let i = 0; i < noChangeRevs.length; i += 2) {
-    noChangePairs.push(noChangeRevs.slice(i, i + 2));
-  }
 
   return (
     <div>
@@ -312,142 +495,13 @@ export function MultiRevisionPrintLayout({ report }: { report: MultiRevisionRepo
         <PrintCoverPage report={report} selectedRevisions={report.revisions} />
       )}
 
-      {/* Changed labels — one full report section per label */}
-      {changedRevs.map((rev) => (
+      {/* All labels — unified structure */}
+      {ordered.map((rev) => (
         <div key={`${rev.fileIndex}-${rev.pageIndex}`} style={{ pageBreakBefore: 'always' }}>
-          <PrintPageHeader report={report} revision={rev} />
+          <PrintPageHeader report={report} revision={rev} noChanges={!rev.hasChanges} />
           <RevisionBody report={report} rev={rev} />
         </div>
       ))}
-
-      {/* No-change labels */}
-      {report.mode === 'A' ? (
-        // Mode A — purely visual, 2 labels per page, no requirements
-        noChangePairs.map((pair, pi) => (
-          <div key={pi} style={{ pageBreakBefore: 'always' }}>
-            {pair.length === 1 ? (
-              <PrintPageHeader report={report} revision={pair[0]} noChanges />
-            ) : (
-              <div className="px-8 py-3 flex items-center justify-between border-b border-gray-300 bg-gray-50">
-                <span className="text-[10px] uppercase tracking-wide font-bold text-gray-600">
-                  Labels — No Changes Required
-                </span>
-                <span className="text-[10px] text-gray-400">
-                  {pair.map(r => r.revisionName).join(' · ')}
-                </span>
-              </div>
-            )}
-            <div className={`p-8 grid gap-6 ${pair.length === 2 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-              {pair.map((rev) => (
-                <div key={`${rev.fileIndex}-${rev.pageIndex}`} className="border border-gray-200 bg-white">
-                  <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[10px] text-gray-400 truncate">{rev.labelName}</div>
-                    </div>
-                    <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                        <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-                      </svg>
-                      No Changes
-                    </span>
-                  </div>
-                  <div className="p-4">
-                    <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))
-      ) : (
-        // Mode B & C — one label per page with full header + requirements sections
-        noChangeRevs.map((rev) => {
-          const basePage = report.currentLabelPages[rev.pageIndex];
-          const baseUrl  = basePage?.url  ?? report.currentLabelUrl;
-          const baseName = basePage?.name ?? report.currentLabelName;
-          return (
-            <div key={`${rev.fileIndex}-${rev.pageIndex}`} style={{ pageBreakBefore: 'always' }}>
-              <PrintPageHeader report={report} revision={rev} noChanges />
-
-              {/* Label image(s) */}
-              {report.mode === 'C' ? (
-                <div className="p-8 grid grid-cols-2 gap-6">
-                  <div className="border border-gray-200 bg-white">
-                    <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
-                      <div>
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
-                        <div className="text-[10px] text-gray-400 truncate mt-0.5">{baseName}</div>
-                      </div>
-                      <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                          <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-                        </svg>
-                        No Changes
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      <img src={baseUrl} alt={baseName} className="w-full h-auto block" />
-                    </div>
-                  </div>
-                  <div className="border border-gray-200 bg-white">
-                    <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
-                      <div>
-                        <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">New Version</div>
-                        <div className="text-[10px] text-gray-400 truncate mt-0.5">{rev.labelName}</div>
-                      </div>
-                      <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                          <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-                        </svg>
-                        No Changes
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                // Mode B — revised label only
-                <div className="p-8">
-                  <div className="border border-gray-200 bg-white inline-block max-w-md w-full">
-                    <div className="px-4 py-2.5 bg-gray-100 border-b border-gray-200 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        {rev.sku && <div className="text-xs font-bold text-gray-900 mb-1">{rev.sku}</div>}
-                        <div className="text-[10px] text-gray-400 truncate">{rev.labelName}</div>
-                      </div>
-                      <span className="shrink-0 flex items-center gap-1 text-[10px] font-semibold text-green-600">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                          <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-                        </svg>
-                        No Changes
-                      </span>
-                    </div>
-                    <div className="p-4">
-                      <img src={rev.labelUrl} alt={rev.labelName} className="w-full h-auto block" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Requirements sections */}
-              {rev.requirements.length > 0 && (
-                <>
-                  <div className="print-break-before p-8">
-                    <MissingChanges requirements={rev.requirements} />
-                  </div>
-                  <div className="print-break-before p-8">
-                    <ExpectedChanges data={requirementsToExpectedChanges(rev.requirements)} />
-                  </div>
-                  <div className="print-break-before p-8">
-                    <InspectionSummary data={ZERO_SUMMARY} />
-                  </div>
-                </>
-              )}
-            </div>
-          );
-        })
-      )}
     </div>
   );
 }

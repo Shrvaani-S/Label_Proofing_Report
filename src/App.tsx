@@ -31,12 +31,15 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
   const commonReqs = data.commonRequirements ?? data.requirements ?? [];
   let revisions: MultiRevisionReport['revisions'] = [];
 
+  const commonUnexpected = data.commonUnexpectedChanges ?? [];
+
   if (data.revisedFiles?.length) {
     for (let fi = 0; fi < data.revisedFiles.length; fi++) {
       const file = data.revisedFiles[fi];
       for (let pi = 0; pi < file.pages.length; pi++) {
         const page = file.pages[pi];
         if (page.status === 'changed') {
+          const merged = [...commonUnexpected, ...(page.unexpectedChanges ?? [])].map((r, i) => ({ ...r, id: i + 1 }));
           revisions.push({
             revisionName:          page.revisionName || data.newRevision,
             labelName:             page.name || file.fileName,
@@ -50,6 +53,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
             boxes:                 page.boxes,
             hasChanges:            true,
             requirements:          [...commonReqs, ...page.requirements].map((r, i) => ({ ...r, id: i + 1 })),
+            unexpectedChanges:     merged,
             discrepancyCategories: page.discrepancyCategories.length
               ? page.discrepancyCategories
               : (data.discrepancyCategories ?? []),
@@ -68,6 +72,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
             boxes:                 [],
             hasChanges:            false,
             requirements:          commonReqs.map((r, i) => ({ ...r, id: i + 1, status: 'Mismatch' as const })),
+            unexpectedChanges:     [],
             discrepancyCategories: [],
           });
         }
@@ -88,6 +93,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
       boxes:                 data.newBoxes,
       hasChanges:            true,
       requirements:          data.requirements,
+      unexpectedChanges:     commonUnexpected,
       discrepancyCategories: data.discrepancyCategories,
     });
     for (let pi = 0; pi < (data.newLabelPages ?? []).slice(1).length; pi++) {
@@ -98,6 +104,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
         sku: '', labelType: page.labelType, stockNumber: page.stockNumber,
         labelUrl: page.url, boxes: [], hasChanges: false,
         requirements: commonReqs.map((r, i) => ({ ...r, id: i + 1, status: 'Match' as const })),
+        unexpectedChanges: [],
         discrepancyCategories: [],
       });
     }
@@ -122,16 +129,16 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
 
 // ─── computeSummaryData ───────────────────────────────────────────────────────
 
-function computeSummaryData(requirements: LabelRevision['requirements']) {
+function computeSummaryData(requirements: LabelRevision['requirements'], unexpectedChanges: LabelRevision['unexpectedChanges'] = []) {
   const data = {
     deleted:   { text: 0, symbol: 0, barcode: 0, image: 0 },
     added:     { text: 0, symbol: 0, barcode: 0, image: 0 },
     modified:  { text: 0, symbol: 0, barcode: 0, image: 0 },
     misplaced: { text: 0, symbol: 0, barcode: 0, image: 0 },
   };
-  for (const req of requirements) {
-    const ctKey = req.changeType.toLowerCase() as keyof typeof data;
-    const etKey = req.elementType.toLowerCase() as 'text' | 'symbol' | 'image';
+  for (const item of [...requirements, ...unexpectedChanges]) {
+    const ctKey = item.changeType.toLowerCase() as keyof typeof data;
+    const etKey = item.elementType.toLowerCase() as 'text' | 'symbol' | 'image';
     if (ctKey in data && etKey in data[ctKey]) {
       (data[ctKey] as Record<string, number>)[etKey]++;
     }
@@ -210,7 +217,7 @@ function RevisionAccordionContent({
         />
       </div>
       <div className="p-6 space-y-6">
-        <InspectionSummary data={computeSummaryData(rev.requirements)} />
+        <InspectionSummary data={computeSummaryData(rev.requirements, rev.unexpectedChanges)} />
         <DiscrepancyDetails categories={rev.discrepancyCategories} />
       </div>
     </div>
@@ -427,7 +434,17 @@ export default function App() {
   const handleMultiRevPdf = () => {
     if (activeScenario === 'A') {
       // Mode A: direct print, no dialog
-      setFilteredRevisions(null);
+      const allRevs = multiRevisionData.revisions;
+      // PDF renders changed first, but IDs are based on original page order
+      const ordered: LabelRevision[] = [
+        ...allRevs.filter((r: LabelRevision) => r.hasChanges),
+        ...allRevs.filter((r: LabelRevision) => !r.hasChanges),
+      ];
+      const datePrefix = reportData!.reportId.slice(0, 8);
+      setFilteredRevisions(ordered.map((rev: LabelRevision) => ({
+        ...rev,
+        reportId: `${datePrefix}${String(rev.pageIndex + 1).padStart(4, '0')}`,
+      })));
       triggerMultiPrint.current = true;
       setPrintMode('multi');
     } else {
@@ -437,12 +454,17 @@ export default function App() {
   };
 
   const handleDownloadSelected = (selectedKeys: Set<string>) => {
-    const filtered = multiRevisionData.revisions.filter(r =>
-      selectedKeys.has(`${r.fileIndex}-${r.pageIndex}`)
-    );
-    const ids = generateSequentialIds(reportData!.reportId, filtered.length, 0);
-    const filteredWithIds = filtered.map((rev, i) => ({ ...rev, reportId: ids[i] }));
-    setFilteredRevisions(filteredWithIds);
+    const allRevs = multiRevisionData.revisions;
+    // PDF renders changed first, but IDs are based on original page order
+    const ordered: LabelRevision[] = [
+      ...allRevs.filter((r: LabelRevision) => r.hasChanges && selectedKeys.has(`${r.fileIndex}-${r.pageIndex}`)),
+      ...allRevs.filter((r: LabelRevision) => !r.hasChanges && selectedKeys.has(`${r.fileIndex}-${r.pageIndex}`)),
+    ];
+    const datePrefix = reportData!.reportId.slice(0, 8);
+    setFilteredRevisions(ordered.map((rev: LabelRevision) => ({
+      ...rev,
+      reportId: `${datePrefix}${String(rev.pageIndex + 1).padStart(4, '0')}`,
+    })));
     setShowPdfDialog(false);
     triggerMultiPrint.current = true;
     setPrintMode('multi');

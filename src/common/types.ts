@@ -23,6 +23,15 @@ export interface Requirement {
   status: RequirementStatus;
 }
 
+export interface UnexpectedChange {
+  id: number;
+  elementType: ElementType;
+  changeType: ChangeType;
+  description: string;
+  actualValue: string;
+  status: RequirementStatus;
+}
+
 export interface DiscrepancyItem {
   changeType: ChangeType;
   value: string;
@@ -45,6 +54,7 @@ export interface RevisedLabelPage {
   status: 'changed' | 'no-changes';
   boxes: DrawnBox[];
   requirements: Requirement[];
+  unexpectedChanges?: UnexpectedChange[];
   discrepancyCategories: DiscrepancyCategory[];
 }
 
@@ -67,6 +77,7 @@ export interface LabelRevision {
   boxes: DrawnBox[];
   hasChanges: boolean;
   requirements: Requirement[];
+  unexpectedChanges: UnexpectedChange[];
   discrepancyCategories: DiscrepancyCategory[];
 }
 
@@ -108,6 +119,8 @@ export interface ReportData {
   newLabelPages?: { url: string; name: string; labelType: string; stockNumber: string }[];
   /** Common requirements that apply to every changed label across all revised files. */
   commonRequirements?: Requirement[];
+  /** Common unexpected changes that apply to every changed label across all revised files. */
+  commonUnexpectedChanges?: UnexpectedChange[];
   /** Structured revised files with per-page status, boxes, requirements. */
   revisedFiles?: RevisedFile[];
   /** Report mode: A = purely visual, B = requirements-based, C = full comparison. */
