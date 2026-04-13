@@ -414,11 +414,15 @@ export default function App() {
     const dd   = String(ist.getUTCDate()).padStart(2, '0');
     const hh   = String(ist.getUTCHours()).padStart(2, '0');
     const min  = String(ist.getUTCMinutes()).padStart(2, '0');
+    // For single-label downloads, use that label's ID; for bulk prints, use base ID
+    const lprId = (filteredRevisions && filteredRevisions.length === 1)
+      ? filteredRevisions[0].reportId
+      : (reportData?.reportId ?? '');
     const style = document.createElement('style');
     style.id = '__print-footer-multi__';
     style.textContent = `
       @page {
-        @bottom-left   { content: "LPR: ${reportData?.reportId ?? ''}"; font-size: 7pt; color: #666; font-family: sans-serif; }
+        @bottom-left   { content: "LPR: ${lprId}"; font-size: 7pt; color: #666; font-family: sans-serif; }
         @bottom-center { content: "Page " counter(page); font-size: 7pt; color: #666; font-family: sans-serif; }
         @bottom-right  { content: "${yyyy}-${mm}-${dd} ${hh}:${min} IST"; font-size: 7pt; color: #666; font-family: sans-serif; }
       }
@@ -432,40 +436,40 @@ export default function App() {
     setPrintMode('standard');
   }, [printMode, reportData]);
 
+  // IDs are based on the label's position in the original revisions list (as shown in the dialog).
+  // Print order (changed-first) is separate from ID assignment.
+  const buildOrderedWithIds = (revs: LabelRevision[], subset?: Set<string>) => {
+    const basePrefix = reportData!.reportId.slice(0, 8);
+    // Position map from ORIGINAL order — label #32 in revs always gets ...0032
+    const positionMap = new Map(
+      revs.map((rev, i) => [`${rev.fileIndex}-${rev.pageIndex}`, i + 1])
+    );
+    // Print order: changed first, no-change after
+    const printOrdered: LabelRevision[] = [
+      ...revs.filter((r: LabelRevision) => r.hasChanges),
+      ...revs.filter((r: LabelRevision) => !r.hasChanges),
+    ];
+    const selected = subset
+      ? printOrdered.filter(r => subset.has(`${r.fileIndex}-${r.pageIndex}`))
+      : printOrdered;
+    return selected.map((rev: LabelRevision) => ({
+      ...rev,
+      reportId: `${basePrefix}${String(positionMap.get(`${rev.fileIndex}-${rev.pageIndex}`) ?? 1).padStart(4, '0')}`,
+    }));
+  };
+
   const handleMultiRevPdf = () => {
     if (activeScenario === 'A') {
-      // Mode A: direct print, no dialog
-      const allRevs = multiRevisionData.revisions;
-      // PDF renders changed first, but IDs are based on original page order
-      const ordered: LabelRevision[] = [
-        ...allRevs.filter((r: LabelRevision) => r.hasChanges),
-        ...allRevs.filter((r: LabelRevision) => !r.hasChanges),
-      ];
-      const datePrefix = reportData!.reportId.slice(0, 8);
-      setFilteredRevisions(ordered.map((rev: LabelRevision) => ({
-        ...rev,
-        reportId: `${datePrefix}${String(rev.pageIndex + 1).padStart(4, '0')}`,
-      })));
+      setFilteredRevisions(buildOrderedWithIds(multiRevisionData.revisions));
       triggerMultiPrint.current = true;
       setPrintMode('multi');
     } else {
-      // Mode B & C: show page-selection dialog
       setShowPdfDialog(true);
     }
   };
 
   const handleDownloadSelected = (selectedKeys: Set<string>) => {
-    const allRevs = multiRevisionData.revisions;
-    // PDF renders changed first, but IDs are based on original page order
-    const ordered: LabelRevision[] = [
-      ...allRevs.filter((r: LabelRevision) => r.hasChanges && selectedKeys.has(`${r.fileIndex}-${r.pageIndex}`)),
-      ...allRevs.filter((r: LabelRevision) => !r.hasChanges && selectedKeys.has(`${r.fileIndex}-${r.pageIndex}`)),
-    ];
-    const datePrefix = reportData!.reportId.slice(0, 8);
-    setFilteredRevisions(ordered.map((rev: LabelRevision) => ({
-      ...rev,
-      reportId: `${datePrefix}${String(rev.pageIndex + 1).padStart(4, '0')}`,
-    })));
+    setFilteredRevisions(buildOrderedWithIds(multiRevisionData.revisions, selectedKeys));
     setShowPdfDialog(false);
     triggerMultiPrint.current = true;
     setPrintMode('multi');

@@ -73,7 +73,7 @@ function LabelWithBoxes({ src, alt, boxes, maxHeight }: { src: string; alt: stri
               left:            `${box.left}%`,
               width:           `${box.width}%`,
               height:          `${box.height}%`,
-              border:          `2px solid ${color}`,
+              border:          `1.5px solid ${color}`,
               backgroundColor: 'transparent',
             }}
           />

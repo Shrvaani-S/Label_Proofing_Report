@@ -54,7 +54,7 @@ function LabelBox({
                     left:            `${box.left}%`,
                     width:           `${box.width}%`,
                     height:          `${box.height}%`,
-                    border:          `2px solid ${typeColorMap[box.type]}`,
+                    border:          `1.5px solid ${typeColorMap[box.type]}`,
                     backgroundColor: 'transparent',
                   }}
                 />

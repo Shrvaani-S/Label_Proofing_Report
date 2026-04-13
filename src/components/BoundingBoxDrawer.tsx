@@ -134,7 +134,7 @@ export function BoundingBoxDrawer({ imageUrl, imageLabel, boxes, onChange }: Bou
               left:   `${box.left}%`,
               width:  `${box.width}%`,
               height: `${box.height}%`,
-              border: `2px solid ${typeColors[box.type]}`,
+              border: `1.5px solid ${typeColors[box.type]}`,
               backgroundColor: 'transparent',
             }}
           />
