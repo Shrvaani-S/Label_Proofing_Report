@@ -58,22 +58,6 @@ function LabelBox({
                     backgroundColor: 'transparent',
                   }}
                 />
-                {/* Label above box */}
-                <div
-                  className="bb-label-wrap absolute pointer-events-none inline-block"
-                  style={{
-                    top:       `${box.top}%`,
-                    left:      `${box.left}%`,
-                    transform: 'translateY(calc(-100% - 2px))',
-                  }}
-                >
-                  <span
-                    className="bb-label font-semibold whitespace-nowrap block"
-                    style={{ color, fontSize: '9px', lineHeight: 1 }}
-                  >
-                    {box.text || box.type}
-                  </span>
-                </div>
               </div>
             );
           })}
@@ -107,16 +91,33 @@ export function LabelComparison({
 }: LabelComparisonProps) {
   const showCurrent = show === 'both' && !!currentLabelUrl;
   const showNew = !!newLabelUrl;
+  const { theme } = useTheme();
+
+  const legendItems = [
+    { label: 'Modified', color: theme.statusColors.modified },
+    { label: 'Added',    color: theme.statusColors.added },
+    { label: 'Deleted',  color: theme.statusColors.deleted },
+  ];
 
   return (
-    <div className={showCurrent && showNew ? 'grid grid-cols-2 gap-6' : 'grid grid-cols-1'}>
-      {showCurrent && (
-        <LabelBox src={currentLabelUrl!} title="Current Version Label" subtitle={currentLabelName} drawnBoxes={drawnCurrentBoxes} />
-      )}
-      {showNew
-        ? <LabelBox src={newLabelUrl!} title="New Version Label" subtitle={newLabelName} drawnBoxes={drawnNewBoxes} />
-        : <EmptyLabelBox title="New Version Label" />
-      }
+    <div className="space-y-3">
+      <div className="flex items-center gap-5 flex-wrap">
+        {legendItems.map(({ label, color }) => (
+          <div key={label} className="flex items-center gap-1.5">
+            <span style={{ display: 'inline-block', width: 11, height: 11, border: `2px solid ${color}`, flexShrink: 0 }} />
+            <span className="text-[10px] font-semibold text-gray-600">{label}</span>
+          </div>
+        ))}
+      </div>
+      <div className={showCurrent && showNew ? 'grid grid-cols-2 gap-6' : 'grid grid-cols-1'}>
+        {showCurrent && (
+          <LabelBox src={currentLabelUrl!} title="Current Version Label" subtitle={currentLabelName} drawnBoxes={drawnCurrentBoxes} />
+        )}
+        {showNew
+          ? <LabelBox src={newLabelUrl!} title="New Version Label" subtitle={newLabelName} drawnBoxes={drawnNewBoxes} />
+          : <EmptyLabelBox title="New Version Label" />
+        }
+      </div>
     </div>
   );
 }

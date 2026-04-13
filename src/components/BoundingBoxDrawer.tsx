@@ -103,6 +103,16 @@ export function BoundingBoxDrawer({ imageUrl, imageLabel, boxes, onChange }: Bou
     <div className="space-y-2">
       <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">{imageLabel}</div>
 
+      {/* Colour legend */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {BOX_TYPES.filter(t => t !== 'Misplaced').map(t => (
+          <div key={t} className="flex items-center gap-1.5">
+            <span style={{ display: 'inline-block', width: 11, height: 11, border: `2px solid ${typeColors[t]}`, flexShrink: 0 }} />
+            <span className="text-[10px] font-semibold text-gray-600">{t}</span>
+          </div>
+        ))}
+      </div>
+
       <div
         ref={containerRef}
         className="relative w-full border border-gray-300 select-none"
@@ -127,21 +137,7 @@ export function BoundingBoxDrawer({ imageUrl, imageLabel, boxes, onChange }: Bou
               border: `2px solid ${typeColors[box.type]}`,
               backgroundColor: 'transparent',
             }}
-          >
-            <span
-              className="absolute text-white px-1 font-bold"
-              style={{
-                backgroundColor: typeColors[box.type],
-                top: -18,
-                left: -1,
-                fontSize: 9,
-                whiteSpace: 'nowrap',
-                lineHeight: '16px',
-              }}
-            >
-              {box.text || box.type}
-            </span>
-          </div>
+          />
         ))}
 
         {/* In-progress drawing rect */}

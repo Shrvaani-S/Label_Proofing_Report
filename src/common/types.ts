@@ -121,6 +121,8 @@ export interface ReportData {
   commonRequirements?: Requirement[];
   /** Common unexpected changes that apply to every changed label across all revised files. */
   commonUnexpectedChanges?: UnexpectedChange[];
+  /** Actual values for the expected changes table on no-change label pages (parallel to commonRequirements). */
+  noChangeActuals?: string[];
   /** Structured revised files with per-page status, boxes, requirements. */
   revisedFiles?: RevisedFile[];
   /** Report mode: A = purely visual, B = requirements-based, C = full comparison. */

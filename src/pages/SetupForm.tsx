@@ -192,12 +192,10 @@ function UnexpectedChangesTable({
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: '3%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '32%' }} />
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '10%' }} />
+            <col style={{ width: '4%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '56%' }} />
             <col style={{ width: '6%' }} />
           </colgroup>
           <thead>
@@ -205,9 +203,7 @@ function UnexpectedChangesTable({
               <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">#</th>
               <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Element</th>
               <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Change Type</th>
-              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Requirements</th>
               <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Actual Value</th>
-              <th className="px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold">Status</th>
               <th className="px-2 py-2"></th>
             </tr>
           </thead>
@@ -225,13 +221,7 @@ function UnexpectedChangesTable({
                     {CHANGE_TYPES_REQ.map(t => <option key={t}>{t}</option>)}
                   </select>
                 </td>
-                <td className="px-2 py-1"><input className={inp} value={item.description} onChange={e => onUpdate(i, 'description', e.target.value)} placeholder="Description" /></td>
                 <td className="px-2 py-1"><input className={inp} value={item.actualValue} onChange={e => onUpdate(i, 'actualValue', e.target.value)} placeholder="Actual" /></td>
-                <td className="px-2 py-1">
-                  <select className={sel} value={item.status} onChange={e => onUpdate(i, 'status', e.target.value)}>
-                    {REQ_STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </td>
                 <td className="px-2 py-1 text-center">
                   <button type="button" onClick={() => onDelete(i)} className="text-gray-400 hover:text-red-500 font-bold text-base leading-none">×</button>
                 </td>
@@ -362,6 +352,11 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     (initialData?.commonUnexpectedChanges ?? auto?.commonUnexpectedChanges) ?? []
   );
 
+  // ── No-change label actual values (parallel to commonRequirements) ──
+  const [noChangeActuals, setNoChangeActuals] = useState<string[]>(
+    initialData?.noChangeActuals ?? auto?.noChangeActuals ?? []
+  );
+
   // ── Common discrepancy categories ──
   const [commonCategories, setCommonCategories] = useState<DiscrepancyCategory[]>(
     (initialData?.discrepancyCategories ?? auto?.discrepancyCategories)?.length
@@ -429,6 +424,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         currentLabelName, currentLabelUrl, currentLabelPages, currentBoxes,
         commonRequirements,
         commonUnexpectedChanges,
+        noChangeActuals,
         revisedFiles,
         ...deriveLegacyFields(),
         discrepancyCategories: commonCategories,
@@ -436,7 +432,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     } catch { /* quota */ }
   }, [reportMode, reportId, crNumber, sku, currentRevision, newRevision,
       currentLabelName, currentLabelUrl, currentLabelPages, currentBoxes,
-      commonRequirements, commonUnexpectedChanges, commonCategories, revisedFiles, isEditing]);
+      commonRequirements, commonUnexpectedChanges, noChangeActuals, commonCategories, revisedFiles, isEditing]);
 
   useEffect(() => {
     getDrafts().then(list => {
@@ -503,6 +499,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     );
     setCommonCategories(d.discrepancyCategories?.length ? d.discrepancyCategories : [makeCategory()]);
     setCommonUnexpectedChanges(d.commonUnexpectedChanges ?? []);
+    setNoChangeActuals(d.noChangeActuals ?? []);
     if (d.revisedFiles?.length) {
       setRevisedFiles(d.revisedFiles.map(f => ({ ...f, pages: f.pages.map(p => ({ ...p })) })));
     } else if (d.newLabelPages?.length) {
@@ -551,6 +548,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       newLabelPages: legacy.newLabelPages,
       commonRequirements: commonRequirements.map((r, i) => ({ ...r, id: i + 1 })),
       commonUnexpectedChanges: commonUnexpectedChanges.map((r, i) => ({ ...r, id: i + 1 })),
+      noChangeActuals,
       revisedFiles: revisedFiles.map(f => ({
         fileName: f.fileName,
         pages: f.pages
@@ -740,6 +738,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
       }),
     }));
 
+
   const updatePageUnexpectedChange = (fi: number, pi: number, ri: number, field: keyof UnexpectedChange, value: string) =>
     setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
       ...f,
@@ -757,6 +756,7 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
         unexpectedChanges: (p.unexpectedChanges ?? []).filter((_, k) => k !== ri).map((r, k) => ({ ...r, id: k + 1 })),
       }),
     }));
+
 
   const addPageCategory = (fi: number, pi: number) =>
     setRevisedFiles(prev => prev.map((f, i) => i !== fi ? f : {
@@ -824,6 +824,10 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
     setCommonUnexpectedChanges(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r));
   const deleteCommonUnexpected = (i: number) =>
     setCommonUnexpectedChanges(prev => prev.filter((_, idx) => idx !== i).map((r, idx) => ({ ...r, id: idx + 1 })));
+
+  // ── No-change actuals handler ───────────────────────────────────────────────
+  const updateNoChangeActual = (i: number, value: string) =>
+    setNoChangeActuals(prev => commonRequirements.map((_, k) => k === i ? value : (prev[k] ?? '')));
 
   // ── Common categories handlers ──────────────────────────────────────────────
   const addCommonCat    = () => setCommonCategories(prev => [...prev, makeCategory()]);
@@ -1091,16 +1095,6 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
                                   onDelete={ri => deletePageUnexpectedChange(fi, pi, ri)}
                                 />
                               </div>
-                              <div>
-                                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-2">Changes Made</div>
-                                <DiscrepancySection categories={page.discrepancyCategories}
-                                  onAddCategory={() => addPageCategory(fi, pi)}
-                                  onDeleteCategory={ci => deletePageCategory(fi, pi, ci)}
-                                  onUpdateTitle={(ci, title) => updatePageCatTitle(fi, pi, ci, title)}
-                                  onAddItem={ci => addPageItem(fi, pi, ci)}
-                                  onDeleteItem={(ci, ii) => deletePageItem(fi, pi, ci, ii)}
-                                  onUpdateItem={(ci, ii, field, value) => updatePageItem(fi, pi, ci, ii, field, value)} />
-                              </div>
                             </div>
                           )}
                         </div>
@@ -1145,20 +1139,51 @@ export function SetupForm({ initialData, onSubmit }: SetupFormProps) {
           />
         </div>
 
-        {/* 5. Common Changes Made */}
-        <div className={sec}>
-          <div className={secH}>5. Common Changes Made</div>
-          <p className="text-xs text-gray-500">Changes that apply across all revised labels. Group by category (e.g. TEXT, SYMBOLS). Label-specific changes can be added per page above.</p>
-          <DiscrepancySection
-            categories={commonCategories}
-            onAddCategory={addCommonCat}
-            onDeleteCategory={deleteCommonCat}
-            onUpdateTitle={updateCommonCatTitle}
-            onAddItem={addCommonItem}
-            onDeleteItem={deleteCommonItem}
-            onUpdateItem={updateCommonItem}
-          />
-        </div>
+        {/* 5. Expected Changes — Actual Values for No-Change Labels */}
+        {commonRequirements.length > 0 && (
+          <div className={sec}>
+            <div className={secH}>5. Expected Changes — Actual Values for No-Change Labels</div>
+            <p className="text-xs text-gray-500">Fill in the actual values for the expected changes table on <strong>no-change</strong> label pages. Leave blank to default to "No Change".</p>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: '4%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '15%' }} />
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '20%' }} />
+                  <col style={{ width: '18%' }} />
+                </colgroup>
+                <thead>
+                  <tr className="bg-gray-100 border-b border-gray-300">
+                    {['#', 'Element', 'Change Type', 'Requirements', 'Expected', 'Actual'].map((h, i, arr) => (
+                      <th key={h} className={`px-2 py-2 text-left text-[10px] uppercase text-gray-600 font-bold ${i < arr.length - 1 ? 'border-r border-gray-200' : ''}`}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {commonRequirements.map((req, i) => (
+                    <tr key={i} className="border-b border-gray-200">
+                      <td className="px-2 py-1.5 text-gray-400 border-r border-gray-200">{i + 1}</td>
+                      <td className="px-2 py-1.5 text-gray-700 border-r border-gray-200">{req.elementType}</td>
+                      <td className="px-2 py-1.5 text-gray-700 border-r border-gray-200">{req.changeType}</td>
+                      <td className="px-2 py-1.5 text-gray-500 border-r border-gray-200">{req.description || '—'}</td>
+                      <td className="px-2 py-1.5 text-gray-500 border-r border-gray-200">{req.expectedValue || '—'}</td>
+                      <td className="px-2 py-1.5">
+                        <input
+                          className="w-full border border-gray-300 px-1 py-1 text-xs focus:outline-none"
+                          placeholder="No Change"
+                          value={noChangeActuals[i] ?? ''}
+                          onChange={e => updateNoChangeActual(i, e.target.value)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Submit */}
         <div className="flex justify-end pb-8">

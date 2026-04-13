@@ -32,6 +32,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
   let revisions: MultiRevisionReport['revisions'] = [];
 
   const commonUnexpected = data.commonUnexpectedChanges ?? [];
+  const noChangeActuals = data.noChangeActuals ?? [];
 
   if (data.revisedFiles?.length) {
     for (let fi = 0; fi < data.revisedFiles.length; fi++) {
@@ -71,7 +72,7 @@ function adaptToMultiRevision(data: ReportData): MultiRevisionReport {
             labelUrl:              page.url,
             boxes:                 [],
             hasChanges:            false,
-            requirements:          commonReqs.map((r, i) => ({ ...r, id: i + 1, status: 'Mismatch' as const })),
+            requirements:          commonReqs.map((r, i) => ({ ...r, id: i + 1, actualValue: noChangeActuals[i] || 'No Change', status: 'Mismatch' as const })),
             unexpectedChanges:     [],
             discrepancyCategories: [],
           });

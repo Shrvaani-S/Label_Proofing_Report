@@ -9,7 +9,6 @@
  */
 
 import { InspectionSummary }               from '@/components/InspectionSummary';
-import { DiscrepancyDetails }              from '@/components/DiscrepancyDetails';
 import { Badge }                           from '@/components/Badge';
 import type { MultiRevisionReport, LabelRevision, UnexpectedChange, Requirement } from '@/common/types';
 
@@ -66,34 +65,41 @@ function LabelWithBoxes({ src, alt, boxes, maxHeight }: { src: string; alt: stri
       {boxes?.map(box => {
         const color = BOX_COLORS[box.type] ?? '#2563eb';
         return (
-          <div key={box.id}>
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                top:             `${box.top}%`,
-                left:            `${box.left}%`,
-                width:           `${box.width}%`,
-                height:          `${box.height}%`,
-                border:          `2px solid ${color}`,
-                backgroundColor: 'transparent',
-              }}
-            />
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                top:       `${box.top}%`,
-                left:      `${box.left}%`,
-                transform: 'translateY(calc(-100% - 2px))',
-              }}
-            >
-              <span className="font-semibold whitespace-nowrap block" style={{ color, fontSize: '9px', lineHeight: 1 }}>
-                {box.text || box.type}
-              </span>
-            </div>
-          </div>
+          <div
+            key={box.id}
+            className="absolute pointer-events-none"
+            style={{
+              top:             `${box.top}%`,
+              left:            `${box.left}%`,
+              width:           `${box.width}%`,
+              height:          `${box.height}%`,
+              border:          `2px solid ${color}`,
+              backgroundColor: 'transparent',
+            }}
+          />
         );
       })}
       </div>
+    </div>
+  );
+}
+
+// ─── Box colour legend ────────────────────────────────────────────────────────
+
+function BoxLegend() {
+  const items = [
+    { label: 'Modified', color: BOX_COLORS.Modified },
+    { label: 'Added',    color: BOX_COLORS.Added },
+    { label: 'Deleted',  color: BOX_COLORS.Deleted },
+  ];
+  return (
+    <div className="flex items-center gap-5 flex-wrap">
+      {items.map(({ label, color }) => (
+        <div key={label} className="flex items-center gap-1.5">
+          <span style={{ display: 'inline-block', width: 12, height: 12, border: `2px solid ${color}`, flexShrink: 0 }} />
+          <span style={{ fontSize: '9px', color: '#374151', fontWeight: 600 }}>{label}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -211,14 +217,13 @@ function ReportTable({
             <table className="w-full border-collapse text-xs" style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={{ width: '4%' }} />
-                <col style={{ width: '11%' }} />
-                <col style={{ width: '17%' }} />
-                <col style={{ width: '38%' }} />
-                <col style={{ width: '30%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '58%' }} />
               </colgroup>
               <thead>
                 <tr className="bg-gray-100 border-b border-gray-300">
-                  {['#', 'Element', 'Change Type', 'Requirements', 'Actual'].map((h, i, arr) => (
+                  {['#', 'Element', 'Change Type', 'Actual'].map((h, i, arr) => (
                     <th key={h} className={`px-2 py-2 text-left text-xs uppercase text-gray-900 font-bold whitespace-nowrap ${i < arr.length - 1 ? 'border-r border-gray-200' : ''}`}>{h}</th>
                   ))}
                 </tr>
@@ -229,7 +234,6 @@ function ReportTable({
                     <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{uc.id}</td>
                     <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200 whitespace-nowrap">{uc.elementType}</td>
                     <td className="px-2 py-1.5 border-r border-gray-200"><Badge type={uc.changeType as 'Modified' | 'Added' | 'Deleted'} /></td>
-                    <td className="px-2 py-1.5 text-gray-900 border-r border-gray-200" style={{ wordBreak: 'break-word' }}>{uc.description}</td>
                     <td className="px-2 py-1.5 text-gray-900" style={{ wordBreak: 'break-word' }}>{uc.actualValue}</td>
                   </tr>
                 ))}
@@ -408,25 +412,18 @@ function RevisionBody({
 
       {/* Page 2: Labels stacked vertically */}
       <div className="print-break-before px-8 pt-6 pb-4 space-y-4">
+        {/* Bounding box colour legend */}
+        <BoxLegend />
+
         {/* Current version — shown in Mode A and C */}
         {mode !== 'B' && (
           <div className="bg-white border border-gray-200">
-            <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
-                <div className="text-[10px] text-gray-400 mt-0.5">{baseName}</div>
-              </div>
-              {isNoChange && (
-                <span className="flex items-center gap-1 text-[10px] font-semibold text-green-600">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                    <path strokeLinecap="square" strokeLinejoin="miter" d="M5 13l4 4L19 7" />
-                  </svg>
-                  No Changes
-                </span>
-              )}
+            <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Current Version</div>
+              <div className="text-[10px] text-gray-400 mt-0.5">{baseName}</div>
             </div>
             <div className="p-4">
-              <LabelWithBoxes src={baseUrl} alt={baseName} boxes={basePage?.boxes ?? []} maxHeight="105mm" />
+              <LabelWithBoxes src={baseUrl} alt={baseName} boxes={basePage?.boxes ?? []} maxHeight="97mm" />
             </div>
           </div>
         )}
@@ -448,32 +445,18 @@ function RevisionBody({
             )}
           </div>
           <div className="p-4">
-            <LabelWithBoxes src={rev.labelUrl} alt={rev.labelName} boxes={rev.boxes ?? []} maxHeight={mode !== 'B' ? '105mm' : undefined} />
+            <LabelWithBoxes src={rev.labelUrl} alt={rev.labelName} boxes={rev.boxes ?? []} maxHeight={mode !== 'B' ? '97mm' : undefined} />
           </div>
         </div>
       </div>
 
-      {/* Page 3: Report Table */}
-      <div className="print-break-before p-8">
+      {/* Page 3: Report Table + Inspection Summary */}
+      <div className="print-break-before p-8 space-y-6">
         <ReportTable
           requirements={rev.requirements}
           unexpectedChanges={rev.unexpectedChanges}
         />
-      </div>
-
-      {/* Page 4: Inspection Summary + Changes Made */}
-      <div className="print-break-before p-8 space-y-6">
         <InspectionSummary data={isNoChange ? ZERO_SUMMARY : computeSummaryData(rev.requirements, rev.unexpectedChanges)} />
-        {isNoChange ? (
-          <div className="space-y-4">
-            <h3 className="text-sm uppercase tracking-wide font-bold text-gray-700">Changes Made</h3>
-            <div className="border-2 border-dashed border-gray-300 py-10 flex items-center justify-center">
-              <span className="text-gray-400 text-xs font-medium tracking-widest uppercase">No Changes</span>
-            </div>
-          </div>
-        ) : (
-          <DiscrepancyDetails categories={rev.discrepancyCategories} />
-        )}
       </div>
     </>
   );
